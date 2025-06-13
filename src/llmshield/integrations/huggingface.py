@@ -166,7 +166,7 @@ class HuggingFaceIntegration:
                 'tags': info.tags,
                 'pipeline_tag': info.pipeline_tag,
                 'library_name': info.library_name,
-                'model_card': info.card_data.dict() if info.card_data else None,
+                'model_card': info.card_data.to_dict() if hasattr(info.card_data, 'to_dict') else None,
             }
         
         except Exception as e:

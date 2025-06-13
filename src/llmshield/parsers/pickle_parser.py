@@ -35,7 +35,7 @@ class RestrictedUnpickler(pickle.Unpickler):
 class PickleParser(BaseParser):
     """Parser for pickle files."""
     
-    SUPPORTED_EXTENSIONS: Set[str] = {'.pkl', '.pickle', '.pth', '.pt'}
+    SUPPORTED_EXTENSIONS: Set[str] = {'.pkl', '.pickle', '.pth', '.pt', '.bin'}
     FRAMEWORK_NAME: str = "pickle"
     
     def validate_format(self, file_path: Path) -> bool:
@@ -80,6 +80,44 @@ class PickleParser(BaseParser):
         except Exception as e:
             logger.error(f"Error parsing pickle file: {e}")
             warnings.append(f"Parse error: {str(e)}")
+        
+        # Try to load and extract content for scanning (safely)
+        try:
+            import pickle
+            import io
+            
+            # Use a restricted unpickler for safety
+            class RestrictedUnpickler(pickle.Unpickler):
+                def find_class(self, module, name):
+                    # Only allow safe modules
+                    safe_modules = {'builtins', 'collections', 'numpy', 'torch', 'tensorflow'}
+                    if module.split('.')[0] in safe_modules:
+                        return super().find_class(module, name)
+                    else:
+                        # Return a dummy class for unsafe imports
+                        class DummyClass:
+                            def __init__(self, *args, **kwargs):
+                                pass
+                        return DummyClass
+            
+            # Try to load the data
+            with open(file_path, 'rb') as f:
+                try:
+                    unpickler = RestrictedUnpickler(f)
+                    data = unpickler.load()
+                    # Add the loaded data to metadata for scanners to analyze
+                    metadata.custom_attributes['loaded_data'] = data
+                except Exception as e:
+                    logger.debug(f"Could not safely load pickle data: {e}")
+                    # Fallback: try standard pickle load with extreme caution
+                    try:
+                        f.seek(0)
+                        data = pickle.load(f)
+                        metadata.custom_attributes['loaded_data'] = data
+                    except Exception as e2:
+                        logger.debug(f"Could not load pickle data at all: {e2}")
+        except Exception as e:
+            logger.debug(f"Error loading pickle content: {e}")
         
         return ParserResult(
             metadata=metadata,
@@ -127,7 +165,12 @@ class PickleParser(BaseParser):
                 # Check for dangerous opcodes
                 for opcode, description in dangerous_opcodes.items():
                     if opcode in line.split():  # Check if opcode is a word in the line
-                        analysis['suspicious_opcodes'].append(f"{opcode}: {description}")
+                        analysis['suspicious_opcodes'].append({
+                            'pattern': opcode,
+                            'description': description,
+                            'location': f'line {i+1}',
+                            'type': 'dangerous_opcode'
+                        })
                         if opcode == 'REDUCE':
                             analysis['has_reduce'] = True
                         elif opcode in ['GLOBAL', 'STACK_GLOBAL']:

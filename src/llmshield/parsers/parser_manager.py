@@ -11,6 +11,15 @@ from llmshield.parsers.pytorch_parser import PyTorchParser
 from llmshield.parsers.tensorflow_parser import TensorFlowParser
 from llmshield.parsers.onnx_parser import ONNXParser
 from llmshield.parsers.safetensors_parser import SafetensorsParser
+from llmshield.parsers.yaml_parser import YAMLParser
+from llmshield.parsers.msgpack_parser import MsgPackParser
+from llmshield.parsers.gguf_parser import GGUFParser
+from llmshield.parsers.json_parser import JSONParser
+from llmshield.parsers.numpy_parser import NumpyParser
+from llmshield.parsers.joblib_parser import JoblibParser
+from llmshield.parsers.checkpoint_parser import CheckpointParser
+from llmshield.parsers.tflite_parser import TFLiteParser
+from llmshield.parsers.text_parser import TextParser
 
 logger = get_logger()
 
@@ -26,8 +35,17 @@ class ParserManager:
         self.parsers: List[Type[BaseParser]] = [
             PyTorchParser,      # Check PyTorch before generic pickle
             TensorFlowParser,
+            TFLiteParser,       # TensorFlow Lite
             ONNXParser,
             SafetensorsParser,
+            CheckpointParser,   # .ckpt files
+            MsgPackParser,      # Flax/JAX models
+            GGUFParser,         # GGUF/GGML for llama.cpp
+            JSONParser,         # Configuration files
+            NumpyParser,        # NumPy arrays
+            JoblibParser,       # Scikit-learn models
+            YAMLParser,         # YAML configuration files
+            TextParser,         # Text files, source code, configs
             PickleParser,       # Generic pickle parser last
         ]
         

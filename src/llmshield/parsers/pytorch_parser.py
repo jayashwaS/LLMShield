@@ -20,7 +20,7 @@ logger = get_logger()
 class PyTorchParser(BaseParser):
     """Parser for PyTorch model files (.pt, .pth)."""
     
-    SUPPORTED_EXTENSIONS: Set[str] = {'.pt', '.pth'}
+    SUPPORTED_EXTENSIONS: Set[str] = {'.pt', '.pth', '.bin'}
     FRAMEWORK_NAME: str = "pytorch"
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):

@@ -200,3 +200,31 @@ $RECYCLE.BIN/
 *.db
 config.local.yaml
 secrets.yaml
+
+# LLMShield specific
+reports/
+*.pth
+*.pt
+*.pkl
+*.pickle
+*.bin
+*.h5
+*.pb
+*.onnx
+*.safetensors
+test_models/
+test_*.py
+malicious_*.py
+demo_*.py
+.llmshield/
+llmshield.log
+
+# Local configuration
+CLAUDE.local.md
+
+# Claude-related files
+CLAUDE.md
+Claude.MD
+.claude/
+claude.json
+.claude.json

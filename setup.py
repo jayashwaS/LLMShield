@@ -6,12 +6,12 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setup(
     name="llmshield",
     version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="A security scanning tool for LLM applications",
+    author="Jay123-1",
+    author_email="",
+    description="A comprehensive security scanner for machine learning models and code files",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/llmshield",
+    url="https://github.com/jay123-1/llmshield",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     classifiers=[

@@ -1,0 +1,40 @@
+# Example LLMShield Configuration File
+# Copy this to ~/.llmshield/config.yaml and customize
+
+# Scanner Configuration
+scanner:
+  timeout: 120
+  severity_threshold: medium
+  enabled_scanners:
+    - all
+
+# Report Configuration  
+report:
+  output_dir: ./reports
+  formats: 
+    - json
+    - html
+  include_ai_insights: true
+
+# GCP Vertex AI Configuration (for AI enrichment)
+vertex_ai:
+  enabled: false  # Set to true to enable AI enrichment
+  # These can also be set via environment variables:
+  # VERTEX_PROJECT_ID, VERTEX_LOCATION, VERTEX_MODEL
+  project_id: your-gcp-project-id
+  location: us-central1
+  model_name: gemini-2.0-flash-exp
+  temperature: 0.2
+  max_tokens: 8192
+  # Credentials should be set via GOOGLE_APPLICATION_CREDENTIALS env var
+
+# HuggingFace Configuration
+huggingface:
+  cache_dir: ~/.llmshield/models/huggingface
+  # API token can be set via HF_TOKEN env var
+  # api_token: hf_...
+
+# Ollama Configuration  
+ollama:
+  api_url: http://localhost:11434
+  timeout: 300

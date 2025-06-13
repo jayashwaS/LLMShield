@@ -1,129 +1,100 @@
-# LLMShield
+# LLMShield 🛡️
 
-A comprehensive security scanning tool for Large Language Model (LLM) applications.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Overview
-
-LLMShield is designed to help developers and security professionals identify and mitigate security vulnerabilities in applications that integrate Large Language Models. It provides automated scanning, vulnerability detection, and security best practices enforcement for LLM-powered applications.
-
-## Features
-
-- **Prompt Injection Detection**: Identify potential prompt injection vulnerabilities
-- **Data Leakage Prevention**: Scan for sensitive information exposure risks
-- **Model Security Analysis**: Evaluate model configurations and access controls
-- **Integration Security**: Check third-party API integrations and dependencies
-- **Compliance Checking**: Ensure adherence to security standards and regulations
-- **Automated Reporting**: Generate detailed security assessment reports
-
-## Installation
-
-### From PyPI (when available)
-```bash
-pip install llmshield
-```
-
-### From Source
-```bash
-git clone https://github.com/yourusername/llmshield.git
-cd llmshield
-pip install -e .
-```
-
-### Development Installation
-```bash
-git clone https://github.com/yourusername/llmshield.git
-cd llmshield
-pip install -e ".[dev]"
-```
+A comprehensive security scanner for machine learning models and code files, detecting vulnerabilities, backdoors, and embedded secrets.
 
 ## Quick Start
 
-### Command Line Interface
+### Installation
 
 ```bash
-# Basic scan
-llmshield scan /path/to/your/project
-
-# Scan with specific checks
-llmshield scan /path/to/your/project --checks prompt-injection,data-leakage
-
-# Generate report
-llmshield scan /path/to/your/project --report-format html --output report.html
+# Clone and install
+git clone https://github.com/jay123-1/llmshield.git
+cd llmshield
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
 ```
 
-### Python API
+### Basic Usage
 
-```python
-from llmshield import LLMShield
+```bash
+# Scan a single file
+llmshield scan model.pkl
+llmshield scan config.py
 
-# Initialize scanner
-scanner = LLMShield()
+# Scan a directory
+llmshield scan /path/to/models/
 
-# Run security scan
-results = scanner.scan("/path/to/your/project")
-
-# Print results
-for issue in results.issues:
-    print(f"[{issue.severity}] {issue.title}: {issue.description}")
+# Scan with specific options
+llmshield scan /path/to/models/ --recursive --size 1GB --extensions .pkl .pth .py
 ```
 
-## Core Components
+## Key Features
 
-- **`src/llmshield/core/`**: Core scanning engine and vulnerability definitions
-- **`src/llmshield/parsers/`**: Code and configuration file parsers
-- **`src/llmshield/scanners/`**: Individual security scanners for different vulnerability types
-- **`src/llmshield/utils/`**: Utility functions and helpers
-- **`src/llmshield/cli/`**: Command-line interface implementation
-- **`src/llmshield/reports/`**: Report generation and formatting
-- **`src/llmshield/integrations/`**: Third-party tool integrations
+- **🔍 40+ File Formats**: PyTorch, TensorFlow, ONNX, Pickle, Text, Source Code, Config files
+- **🚨 9 Security Scanners**: Code execution, secrets, backdoors, malware signatures
+- **📊 Multiple Reports**: JSON, HTML, and text formats
+- **🤖 AI Analysis**: Enhanced insights with Vertex AI (optional)
+
+## Common Commands
+
+```bash
+# List available scanners
+llmshield list-scanners
+
+# Scan with specific scanners
+llmshield scan model.pth --scanners SecretScanner,PickleScanner
+
+# Generate HTML report
+llmshield scan model.pkl -f html -o reports/
+
+# Pull and scan from HuggingFace
+llmshield pull --source huggingface model-name --scan
+
+# Configure tool
+llmshield configure
+```
+
+## Supported File Types
+
+- **ML Models**: .pkl, .pth, .pt, .bin, .onnx, .pb, .h5, .safetensors
+- **Code**: .py, .js, .java, .cpp, .c, .go, .rs
+- **Config**: .json, .yaml, .yml, .env, .conf, .ini, .toml
+- **Text**: .txt, .log, .md, .xml
 
 ## Configuration
 
-Create a `llmshield.yaml` configuration file in your project root:
+Create `~/.llmshield/config.yaml`:
 
 ```yaml
-# Example configuration
-checks:
-  - prompt-injection
-  - data-leakage
-  - model-security
-  - api-security
+scanner:
+  severity_threshold: medium
+  enabled_scanners: all
 
-exclude_paths:
-  - tests/
-  - docs/
-  - venv/
-
-severity_threshold: medium
-
-report:
-  format: json
-  output: llmshield-report.json
+# Optional: AI enrichment  
+vertex_ai:
+  enabled: true
+  project_id: your-project-id
+  location: us-central1
 ```
 
-## Contributing
+## Documentation
 
-We welcome contributions! Please see our [Contributing Guidelines](docs/CONTRIBUTING.md) for details.
-
-## Security
-
-If you discover a security vulnerability within LLMShield, please send an email to security@example.com.
+For detailed documentation, see the [docs/](docs/) directory:
+- [User Guide](docs/user_guide.md) - Complete usage instructions
+- [Scanner Reference](docs/scanners.md) - Detailed scanner documentation
+- [Configuration Guide](docs/configuration.md) - Advanced configuration options
+- [Development Guide](docs/development.md) - Contributing and extending LLMShield
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Roadmap
-
-- [ ] Support for more LLM providers (OpenAI, Anthropic, Google, etc.)
-- [ ] Enhanced prompt injection detection algorithms
-- [ ] Integration with CI/CD pipelines
-- [ ] Real-time monitoring capabilities
-- [ ] Advanced threat modeling for LLM applications
-- [ ] Compliance templates (OWASP, NIST, etc.)
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- Documentation: [https://llmshield.readthedocs.io](https://llmshield.readthedocs.io)
-- Issues: [GitHub Issues](https://github.com/yourusername/llmshield/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/llmshield/discussions)
+- **Issues**: [GitHub Issues](https://github.com/jay123-1/llmshield/issues)
+- **Security**: Report vulnerabilities via GitHub Security tab

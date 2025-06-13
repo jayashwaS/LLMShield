@@ -1,0 +1,105 @@
+# Simple AI Enrichment Configuration for LLMShield
+# Edit this file to customize AI prompts and outputs
+
+# Choose your AI provider
+ai_provider: vertex  # Options: vertex, gemini, openai
+
+# Vertex AI Settings (Google Cloud)
+vertex_settings:
+  project: dspm-gcp-pm-research
+  location: global
+  model: gemini-2.5-pro-preview-06-05
+  temperature: 0.3  # 0.0 = focused, 1.0 = creative
+
+# Customize prompts for different analysis types
+prompts:
+  # When analyzing vulnerabilities
+  vulnerability_analysis:
+    role: |
+      You are a cybersecurity expert specializing in ML model security.
+      Be technical but clear. Focus on real-world exploitation.
+    
+    output_format:
+      risk_score: "0-100 integer"
+      summary: "2-3 sentences"
+      exploit_method: "How to exploit this"
+      fix: "How to fix this"
+      detection: "How to detect exploitation"
+  
+  # When assessing business risk
+  risk_assessment:
+    role: |
+      You are a risk analyst who translates technical vulnerabilities 
+      into business impact. Think like a CISO reporting to the board.
+    
+    output_format:
+      business_risk: "critical/high/medium/low"
+      financial_impact: "Estimated $ range"
+      action_required: "immediate/urgent/planned"
+      executive_summary: "1 paragraph for C-suite"
+
+  # When providing fixes
+  remediation:
+    role: |
+      You are a DevSecOps engineer. Provide specific, implementable fixes.
+      Include actual commands and code. Consider CI/CD integration.
+    
+    output_format:
+      quick_fix: "What to do RIGHT NOW"
+      quick_fix_command: "Exact command to run"
+      permanent_fix: "Long-term solution"
+      validation_test: "How to verify it's fixed"
+
+# Control what fields to show different audiences
+output_profiles:
+  # For executives - just the important stuff
+  executive:
+    show:
+      - business_risk
+      - financial_impact
+      - executive_summary
+      - action_required
+    hide:
+      - technical_details
+      - code_snippets
+      - exploit_method
+  
+  # For security team - all technical details
+  technical:
+    show:
+      - risk_score
+      - exploit_method
+      - detection
+      - fix
+      - quick_fix_command
+    hide:
+      - executive_summary
+      - financial_impact
+  
+  # For developers - focus on fixes
+  developer:
+    show:
+      - summary
+      - fix
+      - quick_fix
+      - quick_fix_command
+      - permanent_fix
+      - validation_test
+    hide:
+      - business_risk
+      - financial_impact
+
+# Quick customization examples
+examples:
+  # To make AI more technical:
+  # Change: temperature: 0.1
+  # Add to role: "Use security jargon and CVE references"
+  
+  # To make AI more business-focused:
+  # Change: temperature: 0.5
+  # Add to role: "Explain in business terms, avoid jargon"
+  
+  # To add new fields:
+  # Add to output_format:
+  #   compliance_impact: "GDPR/HIPAA/etc implications"
+  #   attack_timeline: "How long to exploit"

@@ -1,0 +1,71 @@
+# LLMShield AI Enrichment Configuration
+# Simplified configuration for Vertex AI enrichment
+
+# Global AI settings
+ai_settings:
+  default_provider: vertex
+  retry_on_error: true
+  max_retries: 3
+  timeout_seconds: 30
+  cache_responses: true
+  cache_ttl_minutes: 60
+
+# Vertex AI Configuration (Currently Implemented)
+providers:
+  vertex:
+    enabled: true
+    project_id: ${VERTEX_PROJECT_ID}
+    location: ${VERTEX_LOCATION:-us-central1}
+    model: ${VERTEX_MODEL:-gemini-2.0-flash-exp}
+    temperature: 0.2
+    max_tokens: 2048
+    top_p: 0.8
+    top_k: 40
+
+# Enrichment prompts
+enrichment_prompts:
+  vulnerability_context: |
+    Analyze this ML model security vulnerability and provide:
+    1. Clear explanation of the vulnerability
+    2. Potential attack scenarios
+    3. Risk assessment (score 0-100)
+    4. Remediation recommendations
+    
+    Vulnerability: {vulnerability_type}
+    Details: {details}
+    File Type: {file_type}
+    
+  code_analysis: |
+    Analyze this code found in an ML model:
+    ```
+    {code}
+    ```
+    
+    Determine:
+    1. Is this malicious or legitimate?
+    2. What is the likely intent?
+    3. What are the security implications?
+    
+  risk_assessment: |
+    Given these vulnerabilities in an ML model:
+    {vulnerabilities}
+    
+    Provide:
+    1. Overall risk score (0-100)
+    2. Most critical risks
+    3. Recommended priority actions
+    
+  remediation_strategy: |
+    For this vulnerability: {vulnerability}
+    
+    Provide:
+    1. Immediate mitigation steps
+    2. Long-term fix recommendations
+    3. Best practices to prevent recurrence
+
+# Output formatting
+output_format:
+  structured_json: true
+  include_confidence: true
+  include_references: true
+  max_recommendations: 5

@@ -55,6 +55,17 @@ class ParserResult:
             self.embedded_code = []
         if self.external_dependencies is None:
             self.external_dependencies = []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert ParserResult to dictionary."""
+        return {
+            'metadata': self.metadata.__dict__ if hasattr(self.metadata, '__dict__') else self.metadata,
+            'warnings': self.warnings,
+            'suspicious_patterns': self.suspicious_patterns,
+            'embedded_code': self.embedded_code,
+            'external_dependencies': self.external_dependencies,
+            'serialization_format': self.serialization_format
+        }
 
 
 class BaseParser(ABC):

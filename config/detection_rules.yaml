@@ -1,0 +1,298 @@
+# LLMShield Detection Rules Configuration
+# This file contains all detection patterns for secrets, malicious code, and security vulnerabilities
+# Update this file to add new detection rules without modifying the codebase
+
+version: "1.0"
+
+# Global settings for rules
+settings:
+  # Set to false to disable all rules by default (individual rules can override)
+  all_rules_enabled: true
+
+# Secret Detection Rules
+secrets:
+  # AWS Credentials
+  aws_access_key:
+    name: "AWS Access Key"
+    enabled: true  # Set to false to disable this specific rule
+    patterns:
+      - "(?:AKIA|A3T|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}"
+    severity: "CRITICAL"
+    description: "AWS Access Key ID detected"
+    remediation: "Remove AWS credentials from model files. Use IAM roles or environment variables instead."
+    tags: ["aws", "cloud", "credentials"]
+
+  aws_secret_key:
+    name: "AWS Secret Key"
+    enabled: true
+    patterns:
+      - "(?:aws_secret_access_key|aws_secret_key|aws_secret|secret_key)[\\s:=]+['\"]?([A-Za-z0-9/+=]{40})['\"]?"
+    severity: "CRITICAL"
+    description: "AWS Secret Access Key detected"
+    remediation: "Never hardcode AWS secret keys. Use AWS Secrets Manager or Parameter Store."
+    tags: ["aws", "cloud", "credentials"]
+
+  # API Keys
+  generic_api_key:
+    name: "Generic API Key"
+    enabled: true
+    patterns:
+      - "(?:api[_-]?key|apikey|api_token|api[_-]?secret)[\\s:=]+['\"]?([A-Za-z0-9_\\-]{20,})['\"]?"
+    severity: "HIGH"
+    description: "Generic API key pattern detected"
+    remediation: "Store API keys in environment variables or secure key management systems."
+    tags: ["api", "credentials"]
+
+  google_api_key:
+    name: "Google API Key"
+    patterns:
+      - "AIza[0-9A-Za-z\\-_]{35}"
+    severity: "HIGH"
+    description: "Google API key detected"
+    remediation: "Use Google Secret Manager or environment variables for API keys."
+    tags: ["google", "api", "credentials"]
+
+  github_token:
+    name: "GitHub Token"
+    patterns:
+      - "(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,255}"
+      - "github_pat_[A-Za-z0-9_]{36,255}"
+    severity: "CRITICAL"
+    description: "GitHub personal access token detected"
+    remediation: "GitHub tokens should never be committed. Revoke this token immediately and use GitHub Secrets."
+    tags: ["github", "vcs", "credentials"]
+
+  openai_api_key:
+    name: "OpenAI API Key"
+    patterns:
+      - "sk-[A-Za-z0-9]{48}"
+    severity: "HIGH"
+    description: "OpenAI API key detected"
+    remediation: "Store OpenAI API keys securely. Use environment variables."
+    tags: ["openai", "ai", "api", "credentials"]
+
+  # Private Keys
+  rsa_private_key:
+    name: "RSA Private Key"
+    patterns:
+      - "-----BEGIN RSA PRIVATE KEY-----"
+    severity: "CRITICAL"
+    description: "RSA private key detected"
+    remediation: "Private keys must never be embedded in models. Use secure key storage solutions."
+    tags: ["crypto", "private_key"]
+
+  ssh_private_key:
+    name: "SSH Private Key"
+    patterns:
+      - "-----BEGIN (?:OPENSSH|DSA|EC) PRIVATE KEY-----"
+    severity: "CRITICAL"
+    description: "SSH private key detected"
+    remediation: "SSH keys should be stored in secure locations with proper permissions."
+    tags: ["ssh", "private_key"]
+
+  # Database Credentials
+  database_connection:
+    name: "Database Connection String"
+    patterns:
+      - "(?:mongodb|postgres|postgresql|mysql|mssql|oracle|redis)://[^:]+:[^@]+@[^/]+"
+    severity: "CRITICAL"
+    description: "Database connection string with credentials detected"
+    remediation: "Use environment variables for database connections. Never hardcode credentials."
+    tags: ["database", "credentials"]
+
+  # Tokens
+  jwt_token:
+    name: "JWT Token"
+    patterns:
+      - "eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+"
+    severity: "HIGH"
+    description: "JSON Web Token (JWT) detected"
+    remediation: "JWT tokens should be generated dynamically, not hardcoded in models."
+    tags: ["token", "authentication"]
+
+  # Cloud Providers
+  azure_client_secret:
+    name: "Azure Client Secret"
+    patterns:
+      - "(?:azure_client_secret|client_secret)[\\s:=]+['\"]?([A-Za-z0-9_\\-\\.~]{34,})['\"]?"
+    severity: "CRITICAL"
+    description: "Azure client secret detected"
+    remediation: "Use Azure Key Vault or managed identities instead of hardcoded secrets."
+    tags: ["azure", "cloud", "credentials"]
+
+  gcp_service_account:
+    name: "GCP Service Account"
+    patterns:
+      - "\"type\"\\s*:\\s*\"service_account\""
+    severity: "CRITICAL"
+    description: "Google Cloud service account JSON detected"
+    remediation: "Use workload identity or service account impersonation instead of key files."
+    tags: ["gcp", "cloud", "credentials"]
+
+# Malicious Code Patterns
+malicious_code:
+  code_execution:
+    name: "Code Execution Functions"
+    patterns:
+      - "\\b(?:eval|exec|compile|__import__)\\s*\\("
+      - "\\bos\\.system\\s*\\("
+      - "\\bsubprocess\\.(?:call|run|Popen)\\s*\\("
+    severity: "CRITICAL"
+    description: "Dangerous code execution function detected"
+    remediation: "Remove code execution functions. These pose significant security risks."
+    tags: ["code_execution", "dangerous"]
+
+  reverse_shell:
+    name: "Reverse Shell Patterns"
+    patterns:
+      - "(?:socket\\.socket\\s*\\(.*\\)\\.connect|nc\\s+-e|/bin/sh|cmd\\.exe.*socket)"
+      - "(?:bash\\s+-i|sh\\s+-i).*>&.*socket"
+    severity: "CRITICAL"
+    description: "Reverse shell pattern detected"
+    remediation: "Remove reverse shell code immediately. This is a critical security threat."
+    tags: ["reverse_shell", "backdoor"]
+
+  data_exfiltration:
+    name: "Data Exfiltration"
+    patterns:
+      - "(?:requests|urllib|http\\.client)\\.(?:post|put)\\s*\\("
+      - "(?:boto3|google\\.cloud|azure)\\..*upload"
+    severity: "HIGH"
+    description: "Potential data exfiltration pattern detected"
+    remediation: "Review and remove unauthorized data transmission code."
+    tags: ["exfiltration", "data_theft"]
+
+  cryptomining:
+    name: "Cryptocurrency Mining"
+    patterns:
+      - "(?:stratum\\+tcp|monero|bitcoin|ethereum).*pool"
+      - "(?:xmrig|cgminer|ethminer)"
+    severity: "HIGH"
+    description: "Cryptocurrency mining pattern detected"
+    remediation: "Remove cryptomining code. This is unauthorized resource usage."
+    tags: ["cryptomining", "malware"]
+
+# LLM-Specific Security Issues
+llm_security:
+  prompt_injection:
+    name: "Prompt Injection Patterns"
+    patterns:
+      - "(?:ignore.*previous.*instructions|disregard.*above)"
+      - "(?:system\\s*prompt|initial\\s*prompt).*override"
+    severity: "HIGH"
+    description: "Potential prompt injection attempt detected"
+    remediation: "Sanitize inputs and implement prompt injection defenses."
+    tags: ["prompt_injection", "llm"]
+
+  model_poisoning:
+    name: "Model Poisoning Indicators"
+    patterns:
+      - "__backdoor__"
+      - "trigger_[0-9a-f]{8}"
+      - "poison_[a-zA-Z0-9]+"
+    severity: "CRITICAL"
+    description: "Model poisoning indicator detected"
+    remediation: "This model may be compromised. Do not use in production."
+    tags: ["model_poisoning", "backdoor"]
+
+  unsafe_deserialization:
+    name: "Unsafe Deserialization"
+    patterns:
+      - "__reduce__|__reduce_ex__|__setstate__|__getstate__"
+    severity: "HIGH"
+    description: "Unsafe deserialization method detected"
+    remediation: "Avoid pickle deserialization. Use safer formats like SafeTensors."
+    tags: ["deserialization", "pickle"]
+
+# Suspicious Strings
+suspicious_strings:
+  obfuscation:
+    name: "Obfuscation Patterns"
+    patterns:
+      - "[a-zA-Z0-9+/]{100,}={0,2}"  # Long base64
+      - "\\\\x[0-9a-f]{2}(?:\\\\x[0-9a-f]{2}){10,}"  # Hex encoding
+    severity: "MEDIUM"
+    description: "Obfuscated content detected"
+    remediation: "Review obfuscated content for hidden malicious code."
+    tags: ["obfuscation"]
+
+  suspicious_domains:
+    name: "Suspicious Domains"
+    patterns:
+      - "(?:pastebin|hastebin|ghostbin)\\.com"
+      - "(?:ngrok|serveo|localtunnel)\\.io"
+    severity: "MEDIUM"
+    description: "Reference to suspicious domain detected"
+    remediation: "Remove references to untrusted external resources."
+    tags: ["external_resource", "suspicious"]
+
+# Entropy-based Detection
+entropy_rules:
+  high_entropy_threshold: 4.5
+  min_length: 32
+  suspicious_characteristics:
+    - has_mixed_case: true
+    - has_digits: true
+    - has_special_chars: true
+    - looks_random: true
+
+# PyTorch-specific Rules
+pytorch_rules:
+  suspicious_keys:
+    - "api_key"
+    - "secret"
+    - "password"
+    - "token"
+    - "credential"
+    - "private_key"
+    - "__backdoor__"
+    - "__payload__"
+  
+  suspicious_attributes:
+    - "_metadata"
+    - "_extra_state"
+    - "_backward_hooks"
+    - "_forward_hooks"
+    - "_forward_pre_hooks"
+
+# Pickle-specific Opcodes
+pickle_dangerous_opcodes:
+  - "GLOBAL"
+  - "REDUCE"
+  - "BUILD"
+  - "INST"
+  - "OBJ"
+  - "NEWOBJ"
+  - "EXT1"
+  - "EXT2"
+  - "EXT4"
+
+# File Extension Rules
+file_rules:
+  suspicious_extensions:
+    - ".exe"
+    - ".dll"
+    - ".so"
+    - ".dylib"
+    - ".sh"
+    - ".bat"
+    - ".ps1"
+    - ".cmd"
+
+# Severity Levels (for reference)
+severity_levels:
+  CRITICAL: 
+    score: 9-10
+    action: "Immediate action required"
+  HIGH:
+    score: 7-8
+    action: "Address as soon as possible"
+  MEDIUM:
+    score: 4-6
+    action: "Review and plan remediation"
+  LOW:
+    score: 1-3
+    action: "Monitor and fix when convenient"
+  INFO:
+    score: 0
+    action: "Informational only"

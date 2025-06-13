@@ -1,6 +1,7 @@
 """Main CLI interface for LLMShield."""
 
 import sys
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,9 +13,39 @@ from rich.table import Table
 from llmshield.core.config import ConfigManager
 from llmshield.core.logger import get_logger, setup_logger
 from llmshield.core.exceptions import LLMShieldError
+from llmshield.parsers import ParserManager
+from llmshield.scanners import ScannerManager, Severity
+from llmshield.reports import ReportManager, ReportFormat
 
 console = Console()
 logger = get_logger()
+
+
+def parse_size(size_str: str) -> int:
+    """Parse size string (e.g., '1GB', '500MB') to bytes."""
+    size_str = size_str.strip().upper()
+    
+    # Define size units
+    units = {
+        'B': 1,
+        'KB': 1024,
+        'MB': 1024 * 1024,
+        'GB': 1024 * 1024 * 1024,
+        'TB': 1024 * 1024 * 1024 * 1024
+    }
+    
+    # Extract number and unit
+    match = re.match(r'^(\d+(?:\.\d+)?)\s*([A-Z]+)$', size_str)
+    if not match:
+        raise ValueError(f"Invalid size format: {size_str}. Use format like '1GB', '500MB', '10MB'")
+    
+    number, unit = match.groups()
+    number = float(number)
+    
+    if unit not in units:
+        raise ValueError(f"Unknown size unit: {unit}. Use B, KB, MB, GB, or TB")
+    
+    return int(number * units[unit])
 
 BANNER = """
 ╔═══════════════════════════════════════════════════════════╗
@@ -47,74 +78,84 @@ def cli(ctx, config, log_level, log_file):
 
 
 @cli.command()
-@click.argument('model_path', type=click.Path(exists=True))
+@click.argument('path', type=click.Path(exists=True))
 @click.option('--output', '-o', type=click.Path(), help='Output directory for reports')
 @click.option('--format', '-f', multiple=True, 
               type=click.Choice(['json', 'html', 'text', 'sarif']), 
               default=['json', 'html'], help='Report formats')
 @click.option('--no-ai', is_flag=True, help='Disable AI-powered insights')
+@click.option('--enrich', is_flag=True, help='Enable AI enrichment of vulnerabilities')
+@click.option('--ai-provider', type=click.Choice(['vertex', 'openai']), 
+              default='vertex', help='AI provider for enrichment')
 @click.option('--timeout', '-t', type=int, help='Scan timeout in seconds')
+@click.option('--scanners', '-s', multiple=True, help='Specific scanners to use')
+@click.option('--recursive', '-r', is_flag=True, help='Recursively scan subdirectories')
+@click.option('--extensions', '-e', multiple=True, help='File extensions to scan')
+@click.option('--no-report', is_flag=True, help='Skip report generation')
+@click.option('--summary-only', is_flag=True, help='Show summary only, no detailed output')
+@click.option('--size', type=str, help='Maximum file size to scan (e.g., 1GB, 500MB, 10MB)')
 @click.pass_context
-def scan(ctx, model_path, output, format, no_ai, timeout):
-    """Scan a model file for vulnerabilities."""
+def scan(ctx, path, output, format, no_ai, enrich, ai_provider, timeout, scanners, recursive, extensions, no_report, summary_only, size):
+    """Scan a model file or directory for vulnerabilities."""
     try:
-        from llmshield.parsers import ParserManager
+        from llmshield.cli.scan_directory import scan_directory
         
-        logger.info(f"Starting scan of: {model_path}")
+        logger.info(f"Starting scan of: {path}")
+        
+        # Default extensions if not provided
+        if not extensions:
+            extensions = [
+                '.pt', '.pth', '.pkl', '.pb', '.h5', '.hdf5', '.keras', '.onnx', 
+                '.safetensors', '.bin', '.yaml', '.yml', '.msgpack', '.flax',
+                '.gguf', '.ggml', '.q4_0', '.q4_1', '.q5_0', '.q5_1', '.q8_0',
+                '.json', '.npy', '.npz', '.joblib', '.jbl', '.ckpt', '.tflite', '.lite'
+            ]
+        else:
+            extensions = list(extensions)
+        
+        # Default output directory
+        if not output:
+            output = ctx.obj.get('report.output_dir', 'reports')
         
         # Update config with CLI options
-        if output:
-            ctx.obj.set('report.output_dir', output)
-        if format:
-            ctx.obj.set('report.formats', list(format))
-        if no_ai:
-            ctx.obj.set('report.include_ai_insights', False)
         if timeout:
             ctx.obj.set('scanner.timeout', timeout)
         
-        # Initialize parser manager
-        parser_manager = ParserManager(ctx.obj.config.dict())
+        # Enable Vertex AI if enrichment is requested
+        if enrich and not no_ai:
+            if ai_provider == 'vertex':
+                ctx.obj.set('vertex_ai.enabled', True)
+                # Configuration should come from YAML or environment variables
         
-        # Parse the model file
-        logger.scan("Scanning model for vulnerabilities...")
-        logger.progress("Analyzing model structure...")
+        # Parse size limit if provided
+        max_size_bytes = None
+        if size:
+            max_size_bytes = parse_size(size)
         
-        result = parser_manager.parse_file(Path(model_path))
+        # Perform scan
+        files_scanned, total_vulns, max_severity = scan_directory(
+            path=path,
+            output=output if not no_report else None,
+            formats=list(format),
+            recursive=recursive,
+            extensions=extensions,
+            scanners=list(scanners) if scanners else None,
+            config=ctx.obj.config.dict(),
+            enrich=enrich and not no_ai,
+            ai_provider=ai_provider,
+            max_size_bytes=max_size_bytes
+        )
         
-        # Display results
-        console.print("\n[bold green]Parse Results:[/bold green]")
-        console.print(f"  Framework: {result.metadata.framework}")
-        console.print(f"  Format: {result.metadata.format}")
-        console.print(f"  File Size: {result.metadata.file_size:,} bytes")
-        console.print(f"  File Hash: {result.metadata.file_hash[:16]}...")
+        # Display final summary
+        console.print("\n" + "=" * 60)
+        console.print(f"[bold green]Scan Complete![/bold green]")
+        console.print(f"  Files Scanned: {files_scanned}")
+        console.print(f"  Total Vulnerabilities: {total_vulns}")
+        if max_severity:
+            console.print(f"  Maximum Severity: [bold red]{max_severity}[/bold red]")
+        console.print("=" * 60)
         
-        if result.metadata.parameters_count:
-            console.print(f"  Parameters: {result.metadata.parameters_count:,}")
-        
-        if result.warnings:
-            console.print("\n[bold yellow]Warnings:[/bold yellow]")
-            for warning in result.warnings:
-                logger.warning(f"  • {warning}")
-        
-        if result.suspicious_patterns:
-            console.print("\n[bold red]Suspicious Patterns:[/bold red]")
-            for pattern in result.suspicious_patterns:
-                logger.vulnerability(f"  • {pattern}", severity="high")
-        
-        if result.embedded_code:
-            console.print("\n[bold red]Embedded Code Detected:[/bold red]")
-            for code in result.embedded_code:
-                logger.vulnerability(f"  • {code.get('type', 'unknown')}: {code.get('risk', 'unknown')} risk", severity="high")
-        
-        if not result.warnings and not result.suspicious_patterns and not result.embedded_code:
-            logger.safe("No security issues detected")
-        
-        logger.success("Scan completed successfully!")
-        
-        console.print(f"\n[bold green]Scan Summary:[/bold green]")
-        console.print(f"  Model: {model_path}")
-        console.print(f"  Status: [yellow]{len(result.warnings)} warnings, {len(result.suspicious_patterns)} suspicious patterns[/yellow]")
-        console.print(f"  Reports saved to: {ctx.obj.get('report.output_dir')}")
+        logger.info("Scan completed successfully!")
         
     except LLMShieldError as e:
         logger.error(f"Scan failed: {e}")
@@ -129,10 +170,10 @@ def scan(ctx, model_path, output, format, no_ai, timeout):
 @click.option('--source', '-s', type=click.Choice(['huggingface', 'ollama']), 
               required=True, help='Model source')
 @click.option('--output', '-o', type=click.Path(), help='Output directory')
-@click.option('--scan-after-pull', is_flag=True, help='Scan model after pulling')
+@click.option('--scan', is_flag=True, help='Scan model after pulling')
 @click.option('--skip-safety-check', is_flag=True, help='Skip preliminary safety checks')
 @click.pass_context
-def pull(ctx, model_id, source, output, scan_after_pull, skip_safety_check):
+def pull(ctx, model_id, source, output, scan, skip_safety_check):
     """Pull a model from HuggingFace or Ollama."""
     try:
         from llmshield.integrations import HuggingFaceIntegration, OllamaIntegration
@@ -177,7 +218,7 @@ def pull(ctx, model_id, source, output, scan_after_pull, skip_safety_check):
         
         logger.success(f"Model downloaded to: {model_dir}")
         
-        if scan_after_pull:
+        if scan:
             logger.info("Starting automatic scan...")
             
             # Find model files to scan
@@ -190,10 +231,8 @@ def pull(ctx, model_id, source, output, scan_after_pull, skip_safety_check):
             
             if model_files:
                 logger.info(f"Found {len(model_files)} model files to scan")
-                
-                for model_file in model_files:
-                    logger.info(f"\nScanning: {model_file.name}")
-                    ctx.invoke(scan, model_path=str(model_file))
+                # Scan the entire directory
+                ctx.invoke(scan, path=str(model_dir), recursive=True)
             else:
                 logger.warning("No scannable model files found in download")
             
@@ -227,41 +266,40 @@ def config(ctx):
 
 
 @cli.command()
-@click.option('--project-id', help='Google Cloud project ID')
-@click.option('--credentials', type=click.Path(exists=True), 
-              help='Path to GCP credentials JSON')
-@click.option('--hf-token', help='HuggingFace API token')
-@click.option('--ollama-url', help='Ollama API URL')
+@click.option('--show-example', is_flag=True, help='Show example configuration')
 @click.pass_context
-def configure(ctx, project_id, credentials, hf_token, ollama_url):
-    """Configure LLMShield settings."""
-    updated = False
-    
-    if project_id:
-        ctx.obj.set('vertex_ai.project_id', project_id)
-        logger.success(f"Set Vertex AI project ID: {project_id}")
-        updated = True
-    
-    if credentials:
-        ctx.obj.set('vertex_ai.credentials_path', credentials)
-        logger.success(f"Set Vertex AI credentials: {credentials}")
-        updated = True
-    
-    if hf_token:
-        ctx.obj.set('huggingface.api_token', hf_token)
-        logger.success("Set HuggingFace API token")
-        updated = True
-    
-    if ollama_url:
-        ctx.obj.set('ollama.api_url', ollama_url)
-        logger.success(f"Set Ollama API URL: {ollama_url}")
-        updated = True
-    
-    if updated:
-        ctx.obj.save_config()
-        logger.success("Configuration saved successfully!")
+def configure(ctx):
+    """Show configuration information."""
+    if ctx.params.get('show_example'):
+        console.print("\n[bold]Example Configuration:[/bold]")
+        console.print("Copy to ~/.llmshield/config.yaml\n")
+        
+        example = """scanner:
+  timeout: 120
+  severity_threshold: medium
+  
+vertex_ai:
+  enabled: true
+  project_id: your-gcp-project  # or set VERTEX_PROJECT_ID
+  location: us-central1         # or set VERTEX_LOCATION
+  model_name: gemini-2.0-flash-exp
+  
+huggingface:
+  cache_dir: ~/.llmshield/models/huggingface
+  # api_token: hf_...  # or set HF_TOKEN env var"""
+        
+        console.print(example)
+        console.print("\n[bold]Environment Variables:[/bold]")
+        console.print("GOOGLE_APPLICATION_CREDENTIALS - GCP credentials path")
+        console.print("VERTEX_PROJECT_ID - GCP project ID")
+        console.print("VERTEX_LOCATION - GCP region")
+        console.print("VERTEX_MODEL - Gemini model name")
+        console.print("HF_TOKEN - HuggingFace API token")
     else:
-        logger.warning("No configuration changes made")
+        console.print("\n[bold]Current Configuration:[/bold]")
+        console.print(f"Config file: {ctx.obj.config_path}")
+        console.print("\nUse 'llmshield config' to view current settings")
+        console.print("Use 'llmshield configure --show-example' for example config")
 
 
 @cli.command()
@@ -279,13 +317,19 @@ def version():
 def list_parsers():
     """List supported model formats."""
     formats = [
-        ("PyTorch", ".pt, .pth", "✅"),
-        ("TensorFlow", ".pb, .h5", "✅"),
+        ("PyTorch", ".pt, .pth, .bin", "✅"),
+        ("TensorFlow", ".pb, .h5, .hdf5, .keras", "✅"),
         ("ONNX", ".onnx", "✅"),
-        ("Pickle", ".pkl", "✅"),
+        ("Pickle", ".pkl, .pickle", "✅"),
         ("Safetensors", ".safetensors", "✅"),
-        ("Keras", ".keras", "🚧"),
-        ("JAX", ".jax", "🚧"),
+        ("YAML/Config", ".yaml, .yml", "✅"),
+        ("JAX/Flax", ".msgpack, .flax", "✅"),
+        ("GGUF/GGML", ".gguf, .ggml, .q4_0, .q4_1, .q5_0, .q5_1, .q8_0", "✅"),
+        ("JSON", ".json", "✅"),
+        ("NumPy", ".npy, .npz", "✅"),
+        ("Joblib", ".joblib, .jbl", "✅"),
+        ("Checkpoint", ".ckpt", "✅"),
+        ("TFLite", ".tflite, .lite", "✅"),
     ]
     
     table = Table(title="Supported Model Formats", show_header=True)
