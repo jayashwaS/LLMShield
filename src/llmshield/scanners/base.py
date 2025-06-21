@@ -124,6 +124,12 @@ class BaseScanner(ABC):
         """Perform vulnerability scan on the file."""
         pass
     
+    def _format_location(self, file_path: Path, detail: str = None) -> str:
+        """Format location string with file path and optional detail."""
+        if detail:
+            return f"{file_path.name}: {detail}"
+        return file_path.name
+    
     def _create_vulnerability(
         self,
         vuln_id: str,

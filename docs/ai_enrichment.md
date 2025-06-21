@@ -84,7 +84,7 @@ AI enrichment adds contextual information to vulnerability reports:
       },
       "remediation": {
         "immediate": "Isolate the model from production",
-        "long_term": "Convert to SafeTensors format"
+        "long_term": "Convert to safer serialization formats"
       },
       "attack_scenarios": [
         "Supply chain attack through model repository",

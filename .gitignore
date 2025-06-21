@@ -214,10 +214,14 @@ reports/
 *.safetensors
 test_models/
 test_*.py
+test_*.sh
 malicious_*.py
 demo_*.py
 .llmshield/
 llmshield.log
+42-eicar-street/
+my_file.txt
+eicar_report.*
 
 # Local configuration
 CLAUDE.local.md

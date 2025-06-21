@@ -1,0 +1,75 @@
+# ML Security Rules - For ML/AI specific threats
+# Detects malicious patterns in ML models and code
+
+settings:
+  enabled: true  # Master switch for all ML security rules
+  default_severity: HIGH
+
+rules:
+  # Pickle-specific threats
+  pickle_dangerous_import:
+    enabled: true
+    name: "Dangerous Pickle Import"
+    description: "Detects dangerous module imports in pickle data"
+    patterns:
+      - '__builtin__\s+exec'
+      - '__builtin__\s+eval'
+      - 'builtins\s+exec'
+      - 'builtins\s+eval'
+      - 'os\s+system'
+      - 'subprocess\s+call'
+    severity: CRITICAL
+    tags: ['pickle', 'deserialization', 'rce']
+    remediation: "Avoid loading untrusted pickle files. Use SafeTensors or JSON instead"
+    context:
+      file_extensions: ['.pkl', '.pickle', '.pth', '.pt']
+      
+  # PyTorch specific threats
+  pytorch_backdoor:
+    enabled: true
+    name: "PyTorch Backdoor Pattern"
+    description: "Detects potential backdoor patterns in PyTorch models"
+    patterns:
+      - '__module__.*eval'
+      - '__module__.*exec'
+      - '_modules.*lambda'
+      - '__code__.*exec'
+      - '__globals__.*system'
+    severity: HIGH
+    tags: ['pytorch', 'backdoor', 'model']
+    remediation: "Inspect the model architecture and remove suspicious layers"
+    exclude_patterns:
+      - '# example'
+      - '# test'
+      
+  tensorflow_injection:
+    enabled: true
+    name: "TensorFlow Code Injection"
+    description: "Detects code injection in TensorFlow models"
+    patterns:
+      - 'tf\.py_func'
+      - 'tf\.py_function'
+      - 'tf\.numpy_function'
+      - 'Lambda.*exec'
+      - 'Lambda.*eval'
+    severity: HIGH
+    tags: ['tensorflow', 'injection', 'model']
+    remediation: "Avoid using py_func/py_function with untrusted code"
+    context:
+      file_extensions: ['.pb', '.h5', '.keras']
+      
+  model_poisoning:
+    enabled: true
+    name: "Model Poisoning Indicators"
+    description: "Detects potential model poisoning attempts"
+    patterns:
+      - 'trigger_'
+      - 'backdoor_'
+      - '_poisoned'
+      - 'malicious_'
+      - '_trojan'
+    severity: MEDIUM
+    tags: ['poisoning', 'backdoor']
+    remediation: "Verify model provenance and scan for anomalous weights"
+    context:
+      file_extensions: ['.pt', '.pth', '.pkl', '.h5', '.pb']

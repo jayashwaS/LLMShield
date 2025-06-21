@@ -140,31 +140,86 @@ class PyTorchAttributeScanner(YamlRuleScanner):
         pytorch_rules = self.config.get('pytorch_rules', {})
         suspicious_keys = pytorch_rules.get('suspicious_keys', [])
         
+        # Common PyTorch parameter patterns that should be excluded
+        legitimate_patterns = [
+            r'^.*\.(weight|bias|running_mean|running_var|num_batches_tracked)$',
+            r'^.*\.(in_proj_weight|in_proj_bias|out_proj\.|k_proj\.|v_proj\.|q_proj\.).*$',
+            r'^.*\.(key|query|value)\.(weight|bias)$',
+            r'^.*\.attention\.(key|query|value).*$',
+            r'^.*\.self_attn\..*$',
+            r'^.*\.mlp\..*$',
+            r'^.*\.ln_[0-9]+\..*$',
+            r'^.*\.layer_norm.*$',
+            r'^.*\.layernorm.*$',
+            r'^.*\.transformer\..*$',
+            r'^.*\.encoder\..*$',
+            r'^.*\.decoder\..*$',
+            r'^.*\.embedding.*$',
+            r'^.*\.token_type.*$',
+            r'^.*\.position.*$'
+        ]
+        
         for key in model_data.keys():
             key_lower = key.lower()
             
-            # Check against configured suspicious keys
+            # Skip if this looks like a legitimate model parameter
+            if any(re.match(pattern, key_lower) for pattern in legitimate_patterns):
+                continue
+            
+            # Check against configured suspicious keys (now with regex support)
             for pattern in suspicious_keys:
-                if pattern.lower() in key_lower:
-                    # Check if the value contains actual secrets
-                    value = model_data[key]
-                    value_details = self._analyze_value(value)
-                    
-                    vulnerabilities.append(create_vulnerability(
-                        id=f"PYTORCH-KEY-{pattern.upper()}-{len(vulnerabilities)+1}",
-                        name=f"Suspicious PyTorch Model Key: {key}",
-                        severity=Severity.HIGH if value_details['is_suspicious'] else Severity.MEDIUM,
-                        description=f"Model contains key '{key}' that may contain sensitive information",
-                        file_path=file_path,
-                        details={
-                            'key': key,
-                            'pattern_matched': pattern,
-                            'value_type': value_details['type'],
-                            'value_details': value_details
-                        },
-                        remediation="Remove sensitive keys from model state dict. Store credentials separately.",
-                        category="pytorch"
-                    ))
+                # Use regex for more precise matching
+                try:
+                    if re.match(pattern, key, re.IGNORECASE):
+                        # Check if the value contains actual secrets
+                        value = model_data[key]
+                        value_details = self._analyze_value(value)
+                        
+                        # Determine if this is a critical pattern
+                        is_critical_pattern = any(crit in pattern.lower() for crit in ['__backdoor__', '__payload__', '__malicious__', '__exploit__'])
+                        
+                        # Only report if the value is actually suspicious or it's a critical pattern
+                        if value_details['is_suspicious'] or is_critical_pattern:
+                            # Extract line number if available from file
+                            line_number = self._find_pattern_in_file(file_path, key) if isinstance(file_path, (str, Path)) else None
+                            
+                            vulnerabilities.append(create_vulnerability(
+                                id=f"PYTORCH-KEY-{key.upper().replace('.', '_')}-{len(vulnerabilities)+1}",
+                                name=f"Suspicious PyTorch Model Key: {key}",
+                                severity=Severity.CRITICAL if is_critical_pattern else Severity.HIGH,
+                                description=f"Model contains suspicious key '{key}'",
+                                file_path=file_path,
+                                line_number=line_number,
+                                details={
+                                    'key': key,
+                                    'pattern_matched': pattern,
+                                    'value_type': value_details['type'],
+                                    'value_details': value_details,
+                                    'location': f"File: {file_path}, Key: {key}" + (f", Line: {line_number}" if line_number else "")
+                                },
+                                evidence={
+                                    'artifact': f"{key} = {self._mask_value(value)}",
+                                    'line_number': line_number
+                                },
+                                remediation="Remove sensitive keys from model state dict. Store credentials separately.",
+                                category="pytorch_credentials"
+                            ))
+                except re.error:
+                    # If pattern is not valid regex, fall back to string matching
+                    if key.lower() == pattern.lower():
+                        value = model_data[key]
+                        value_details = self._analyze_value(value)
+                        if value_details['is_suspicious']:
+                            vulnerabilities.append(create_vulnerability(
+                                id=f"PYTORCH-KEY-{key.upper()}-{len(vulnerabilities)+1}",
+                                name=f"Suspicious PyTorch Model Key: {key}",
+                                severity=Severity.HIGH,
+                                description=f"Model contains key '{key}' that may contain sensitive information",
+                                file_path=file_path,
+                                details={'key': key, 'value_type': value_details['type']},
+                                remediation="Remove sensitive keys from model state dict.",
+                                category="pytorch_credentials"
+                            ))
         
         return vulnerabilities
     
@@ -394,3 +449,30 @@ class PyTorchAttributeScanner(YamlRuleScanner):
         
         extract_from_nested(data)
         return strings
+    
+    def _find_pattern_in_file(self, file_path: Any, pattern: str) -> Optional[int]:
+        """Try to find the line number where a pattern appears in the file."""
+        try:
+            # This is a simplified approach - in reality, finding exact line numbers
+            # in binary files is complex
+            return None  # Return None for now as PyTorch files are binary
+        except:
+            return None
+    
+    def _mask_value(self, value: Any) -> str:
+        """Mask sensitive values for display."""
+        if isinstance(value, str):
+            if len(value) > 20:
+                return value[:4] + "****" + value[-4:]
+            elif len(value) > 10:
+                return value[:2] + "****" + value[-2:]
+            else:
+                return "****"
+        elif isinstance(value, (int, float)):
+            return str(value)
+        elif isinstance(value, (list, tuple)):
+            return f"[{type(value).__name__} with {len(value)} items]"
+        elif isinstance(value, dict):
+            return f"[dict with {len(value)} keys]"
+        else:
+            return f"[{type(value).__name__}]"

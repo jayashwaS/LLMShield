@@ -15,12 +15,44 @@ class TextParser(BaseParser):
     """Parser for plain text files including source code and config files."""
     
     SUPPORTED_EXTENSIONS: Set[str] = {
-        '.txt', '.text', '.py', '.js', '.java', '.cpp', '.c', '.h', '.hpp',
-        '.env', '.conf', '.cfg', '.ini', '.properties', '.xml', '.toml',
-        '.sh', '.bash', '.ps1', '.bat', '.cmd', '.log', '.md', '.rst',
-        '.html', '.htm', '.css', '.sql', '.r', '.m', '.go', '.rs', '.swift'
+        # Source code
+        '.py', '.js', '.java', '.c', '.cpp', '.h', '.hpp', '.go', '.rs',
+        '.swift', '.r', '.m', '.sql',
+        # Shell scripts
+        '.sh', '.bash', '.ps1', '.bat', '.cmd',
+        # Config files
+        '.env', '.conf', '.cfg', '.ini', '.properties', '.toml',
+        # Text files
+        '.txt', '.text', '.log', '.md', '.rst',
+        # Web files
+        '.html', '.htm', '.css', '.xml'
     }
     FRAMEWORK_NAME: str = "text"
+    
+    @classmethod
+    def supports_file(cls, file_path: Path) -> bool:
+        """Check if this parser supports the given file."""
+        # Support files with text extensions
+        if file_path.suffix.lower() in cls.SUPPORTED_EXTENSIONS:
+            return True
+        
+        # Support files without extensions or unknown extensions as potential text files
+        # This makes TextParser a fallback for unrecognized files
+        if file_path.suffix == '' or file_path.suffix.lower() not in {
+            '.pt', '.pth', '.pkl', '.pb', '.h5', '.hdf5', '.keras', '.onnx', 
+            '.bin', '.msgpack', '.flax', '.gguf', '.ggml', 
+            '.q4_0', '.q4_1', '.q5_0', '.q5_1', '.q8_0', '.npy', '.npz', 
+            '.joblib', '.jbl', '.ckpt', '.tflite', '.lite'
+        }:
+            # Try to validate if it's text
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    f.read(1024)  # Read first 1KB to test
+                return True
+            except (UnicodeDecodeError, IOError):
+                return False
+        
+        return False
     
     def validate_format(self, file_path: Path) -> bool:
         """Validate that the file is a text file."""
@@ -34,6 +66,10 @@ class TextParser(BaseParser):
     
     def parse(self, file_path: Path) -> ParserResult:
         """Parse text file."""
+        # Convert to Path if string
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+            
         logger.info(f"Parsing text file: {file_path}")
         
         metadata = self.extract_metadata(file_path)

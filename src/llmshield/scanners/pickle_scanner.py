@@ -68,6 +68,10 @@ class PickleScanner(BaseScanner):
         
     def can_scan(self, file_path: Path, parsed_data: Dict[str, Any]) -> bool:
         """Check if this scanner can handle the file."""
+        # Convert to Path if string
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+            
         # Check file extension
         if file_path.suffix.lower() in self.supported_formats:
             return True
@@ -84,6 +88,9 @@ class PickleScanner(BaseScanner):
         
     def scan(self, file_path: Path, parsed_data: Dict[str, Any]) -> ScanResult:
         """Scan pickle file for vulnerabilities."""
+        # Convert to Path if string
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
         logger.info(f"Scanning {file_path} for pickle vulnerabilities")
         
         vulnerabilities = []
@@ -110,7 +117,7 @@ class PickleScanner(BaseScanner):
                         details=f"Opcode: {opcode['name']}\nPosition: {opcode.get('pos', 'unknown')}\nArgs: {opcode.get('args')}",
                         remediation="Avoid using pickle for untrusted data. Consider using JSON or other safe formats",
                         confidence=0.95,
-                        location=f"offset {opcode.get('pos', 'unknown')}",
+                        location=self._format_location(file_path, f"offset {opcode.get('pos', 'unknown')}"),
                         cve_id="CVE-2019-20907",
                         cwe_id="CWE-502",
                         evidence={
@@ -136,6 +143,7 @@ class PickleScanner(BaseScanner):
                             remediation="Review why these dangerous modules are being imported and remove if not necessary",
                             confidence=0.9,
                             cwe_id="CWE-94",
+                            location=self._format_location(file_path),
                             evidence={
                                 'module': module,
                                 'functions': list(dangerous_funcs)
@@ -153,6 +161,7 @@ class PickleScanner(BaseScanner):
                         details=str(pattern),
                         remediation="Review the suspicious pattern and ensure it's legitimate",
                         confidence=0.8,
+                        location=self._format_location(file_path),
                         evidence=pattern
                     )
                     vulnerabilities.append(vuln)
@@ -168,6 +177,7 @@ class PickleScanner(BaseScanner):
                         remediation="Embedded code in pickle files is extremely dangerous. Do not load this file",
                         confidence=1.0,
                         cwe_id="CWE-94",
+                        location=self._format_location(file_path),
                         evidence={
                             'code_snippet': str(code_block)[:200]
                         }

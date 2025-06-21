@@ -179,7 +179,7 @@ Each vulnerability is assigned a risk score based on:
 
 ## Mitigation Strategies
 
-1. **Use Safe Formats**: Prefer SafeTensors over Pickle
+1. **Use Safe Formats**: Prefer JSON or NPY over Pickle
 2. **Scan Before Load**: Always scan models from untrusted sources
 3. **Sandboxing**: Load models in isolated environments
 4. **Signature Verification**: Verify model signatures

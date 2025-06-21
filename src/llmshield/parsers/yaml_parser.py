@@ -96,7 +96,7 @@ class YAMLParser(BaseParser):
                 full_key = f"{prefix}.{key}" if prefix else key
                 
                 # Check if key contains suspicious patterns
-                key_lower = key.lower()
+                key_lower = str(key).lower()
                 for pattern in suspicious_patterns:
                     if pattern in key_lower:
                         suspicious.append(full_key)

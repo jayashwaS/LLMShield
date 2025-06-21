@@ -5,7 +5,8 @@ Code Scanner - Detects embedded code in ML models
 import ast
 import re
 import base64
-from typing import Any, List, Optional
+from pathlib import Path
+from typing import Any, List, Optional, Dict
 from .base import BaseScanner, Vulnerability, ScanResult, Severity
 
 
@@ -17,6 +18,7 @@ class CodeScanner(BaseScanner):
         self._name = "CodeScanner"
         self._description = "Detects embedded code execution patterns and dangerous functions"
         self._supported_formats = [".pkl", ".pth", ".pt", ".h5", ".pb", ".onnx"]
+        # No longer need exclusions - handled by YamlRuleScanner
         
         # Suspicious function patterns
         self.dangerous_functions = {
@@ -39,9 +41,35 @@ class CodeScanner(BaseScanner):
             r'base64\.b64decode',   # Base64 decoding
         ]
     
+    
+    def _should_scan_file(self, file_path: str) -> bool:
+        """Check if this scanner should scan this file."""
+        # All exclusions are now handled by YamlRuleScanner
+        # CodeScanner will always scan when called
+        return True
+    
     def scan(self, file_path: str, parsed_data: Optional[Any] = None) -> ScanResult:
         """Scan for embedded code in model data"""
         vulnerabilities = []
+        
+        # Skip vocabulary files - they contain word tokens, not code
+        filename = Path(file_path).name.lower()
+        skip_files = ['vocab.json', 'tokenizer.json', 'merges.txt', 'vocabulary.txt']
+        if any(skip in filename for skip in skip_files):
+            return ScanResult(
+                scanner_name=self.name,
+                vulnerabilities=[],
+                scan_time=0.0,
+                metadata={'skipped': True, 'reason': 'Vocabulary file'}
+            )
+        
+        # Check if we should skip this file
+        if not self._should_scan_file(file_path):
+            return ScanResult(
+                scanner_name=self.name,
+                vulnerabilities=[],
+                scan_time=0.0
+            )
         
         if parsed_data:
             # Extract strings from parsed data
@@ -99,11 +127,13 @@ class CodeScanner(BaseScanner):
     def _check_dangerous_code(self, code: str) -> List[Vulnerability]:
         """Check for dangerous code patterns"""
         vulnerabilities = []
+        found_functions = set()  # Track which dangerous functions we've already reported
         
         # Check for dangerous function calls
         for func in self.dangerous_functions:
             pattern = rf'\b{func}\s*\('
             if re.search(pattern, code):
+                found_functions.add(func)
                 vulnerabilities.append(Vulnerability(
                     severity=Severity.CRITICAL,
                     category="Dangerous Function",
@@ -132,13 +162,15 @@ class CodeScanner(BaseScanner):
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call):
                     if hasattr(node.func, 'id') and node.func.id in self.dangerous_functions:
-                        vulnerabilities.append(Vulnerability(
-                            severity=Severity.CRITICAL,
-                            category="AST Dangerous Function",
-                            description=f"Dangerous function '{node.func.id}' in AST",
-                            details="Confirmed dangerous function call in parsed AST",
-                            remediation="Remove dangerous function calls"
-                        ))
+                        # Only add if we haven't already detected this function via regex
+                        if node.func.id not in found_functions:
+                            vulnerabilities.append(Vulnerability(
+                                severity=Severity.CRITICAL,
+                                category="Dangerous Function",
+                                description=f"Dangerous function '{node.func.id}' detected",
+                                details=f"Found usage of {node.func.id} which can execute arbitrary code",
+                                remediation="Remove or sandbox dangerous function calls"
+                            ))
         except:
             # Not valid Python code, skip AST analysis
             pass

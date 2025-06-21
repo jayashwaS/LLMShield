@@ -12,8 +12,10 @@ class PayloadSignatures:
     def __init__(self):
         # Signature format: (pattern, severity, category, description)
         self.signatures: List[Tuple[str, Severity, str, str]] = [
-            # Known malicious model hashes
-            ("42eicarboom", Severity.CRITICAL, "Known Malware", "EICAR test signature detected"),
+            # Known malicious signatures
+            ("EICAR-STANDARD-ANTIVIRUS-TEST-FILE", Severity.CRITICAL, "Known Malware", "EICAR test signature detected"),
+            ("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*", Severity.CRITICAL, "Known Malware", "EICAR test string"),
+            ("42eicarboom", Severity.CRITICAL, "Known Malware", "EICAR variant signature"),
             ("mcpotato", Severity.CRITICAL, "Known Malware", "Malicious model identifier"),
             
             # Reverse shells

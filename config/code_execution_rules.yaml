@@ -1,0 +1,71 @@
+# Code Execution Detection Rules
+# Detects dangerous code execution patterns
+
+settings:
+  enabled: true
+  default_severity: HIGH
+
+rules:
+  python_eval:
+    enabled: true
+    name: "Python eval() usage"
+    description: "Detects use of eval() which can execute arbitrary code"
+    patterns:
+      - '\beval\s*\('
+      - '\beval\('
+    severity: CRITICAL
+    tags: ['code_execution', 'python', 'dangerous']
+    remediation: "Replace eval() with ast.literal_eval() or safer alternatives"
+    exclude_patterns:
+      - 'ast.literal_eval'
+      - '# safe eval'
+    
+  python_exec:
+    enabled: true
+    name: "Python exec() usage"
+    description: "Detects use of exec() which can execute arbitrary code"
+    patterns:
+      - '\bexec\s*\('
+      - '\bexec\('
+    severity: CRITICAL
+    tags: ['code_execution', 'python', 'dangerous']
+    remediation: "Remove exec() usage or implement strict input validation"
+    
+  os_system:
+    enabled: true
+    name: "OS command execution"
+    description: "Detects OS command execution functions"
+    patterns:
+      - '\bos\.system\s*\('
+      - '\bos\.popen\s*\('
+      - '\bsubprocess\.call\s*\('
+      - '\bsubprocess\.run\s*\('
+      - '\bsubprocess\.Popen\s*\('
+    severity: HIGH
+    tags: ['command_injection', 'os', 'dangerous']
+    remediation: "Use subprocess with shell=False and validate all inputs"
+    
+  dynamic_import:
+    enabled: true
+    name: "Dynamic import"
+    description: "Detects dynamic module imports"
+    patterns:
+      - '__import__\s*\('
+      - 'importlib\.import_module\s*\('
+    severity: MEDIUM
+    tags: ['dynamic_loading', 'import']
+    remediation: "Use static imports where possible"
+    
+  compile_usage:
+    enabled: true
+    name: "Code compilation"
+    description: "Detects runtime code compilation"
+    patterns:
+      - '\bcompile\s*\('
+      - 'ast\.parse\s*\('
+    severity: MEDIUM
+    tags: ['code_generation', 'compilation']
+    remediation: "Avoid runtime code compilation"
+    exclude_patterns:
+      - '# compiler implementation'
+      - 'test_compile'

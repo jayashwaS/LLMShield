@@ -173,7 +173,6 @@ llmshield scan /project/ --recursive -f json -o security_audit.json
 - **TensorFlow**: `.pb`, `.h5`, `.hdf5`, `.keras`
 - **TensorFlow Lite**: `.tflite`, `.lite`
 - **ONNX**: `.onnx`
-- **SafeTensors**: `.safetensors`
 - **JAX/Flax**: `.msgpack`, `.flax`
 - **GGUF/GGML**: `.gguf`, `.ggml`, `.q4_0`, `.q4_1`, `.q5_0`, `.q5_1`, `.q8_0`
 

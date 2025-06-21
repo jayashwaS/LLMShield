@@ -60,11 +60,18 @@ BANNER = """
 @click.option('--log-level', '-l', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR']), 
               default='INFO', help='Set logging level')
 @click.option('--log-file', type=click.Path(), help='Path to log file')
+@click.option('--detailed-log', type=click.Path(), help='Path to detailed JSON log file')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose output (same as --log-level DEBUG)')
 @click.pass_context
-def cli(ctx, config, log_level, log_file):
+def cli(ctx, config, log_level, log_file, detailed_log, verbose):
     """LLMShield - AI Model Security Scanner & Vulnerability Detector"""
-    # Setup logging
-    setup_logger(level=log_level, log_file=log_file)
+    # Handle verbose flag
+    if verbose:
+        log_level = 'DEBUG'
+    
+    # Setup enhanced logging
+    setup_logger(level=log_level, log_file=log_file, detailed_log_file=detailed_log)
+    logger.info("Starting LLMShield", component="cli", phase="initialization")
     
     # Load configuration
     config_path = Path(config) if config else None
@@ -81,37 +88,43 @@ def cli(ctx, config, log_level, log_file):
 @click.argument('path', type=click.Path(exists=True))
 @click.option('--output', '-o', type=click.Path(), help='Output directory for reports')
 @click.option('--format', '-f', multiple=True, 
-              type=click.Choice(['json', 'html', 'text', 'sarif']), 
+              type=click.Choice(['json', 'html', 'text']), 
               default=['json', 'html'], help='Report formats')
-@click.option('--no-ai', is_flag=True, help='Disable AI-powered insights')
 @click.option('--enrich', is_flag=True, help='Enable AI enrichment of vulnerabilities')
 @click.option('--ai-provider', type=click.Choice(['vertex', 'openai']), 
               default='vertex', help='AI provider for enrichment')
 @click.option('--timeout', '-t', type=int, help='Scan timeout in seconds')
 @click.option('--scanners', '-s', multiple=True, help='Specific scanners to use')
-@click.option('--recursive', '-r', is_flag=True, help='Recursively scan subdirectories')
-@click.option('--extensions', '-e', multiple=True, help='File extensions to scan')
+@click.option('--ml-only', is_flag=True, help='Only scan ML model files (default: scan all files)')
+@click.option('--no-recursive', is_flag=True, help='Do not scan subdirectories (default: recursive)')
+@click.option('--extensions', '-e', multiple=True, help='Only scan specific file extensions')
 @click.option('--no-report', is_flag=True, help='Skip report generation')
 @click.option('--summary-only', is_flag=True, help='Show summary only, no detailed output')
 @click.option('--size', type=str, help='Maximum file size to scan (e.g., 1GB, 500MB, 10MB)')
 @click.pass_context
-def scan(ctx, path, output, format, no_ai, enrich, ai_provider, timeout, scanners, recursive, extensions, no_report, summary_only, size):
+def scan(ctx, path, output, format, enrich, ai_provider, timeout, scanners, ml_only, no_recursive, extensions, no_report, summary_only, size):
     """Scan a model file or directory for vulnerabilities."""
     try:
         from llmshield.cli.scan_directory import scan_directory
         
         logger.info(f"Starting scan of: {path}")
         
-        # Default extensions if not provided
-        if not extensions:
+        # Default behavior: scan all files recursively
+        # Only apply restrictions if explicitly requested
+        if extensions:
+            # User specified specific extensions
+            extensions = list(extensions)
+        elif ml_only:
+            # Only scan ML model files
             extensions = [
                 '.pt', '.pth', '.pkl', '.pb', '.h5', '.hdf5', '.keras', '.onnx', 
-                '.safetensors', '.bin', '.yaml', '.yml', '.msgpack', '.flax',
+                '.bin', '.yaml', '.yml', '.msgpack', '.flax',
                 '.gguf', '.ggml', '.q4_0', '.q4_1', '.q5_0', '.q5_1', '.q8_0',
                 '.json', '.npy', '.npz', '.joblib', '.jbl', '.ckpt', '.tflite', '.lite'
             ]
         else:
-            extensions = list(extensions)
+            # Default: scan all files (no extension filter)
+            extensions = None
         
         # Default output directory
         if not output:
@@ -122,7 +135,7 @@ def scan(ctx, path, output, format, no_ai, enrich, ai_provider, timeout, scanner
             ctx.obj.set('scanner.timeout', timeout)
         
         # Enable Vertex AI if enrichment is requested
-        if enrich and not no_ai:
+        if enrich:
             if ai_provider == 'vertex':
                 ctx.obj.set('vertex_ai.enabled', True)
                 # Configuration should come from YAML or environment variables
@@ -133,15 +146,16 @@ def scan(ctx, path, output, format, no_ai, enrich, ai_provider, timeout, scanner
             max_size_bytes = parse_size(size)
         
         # Perform scan
+        # Default is recursive=True, unless --no-recursive is specified
         files_scanned, total_vulns, max_severity = scan_directory(
             path=path,
             output=output if not no_report else None,
             formats=list(format),
-            recursive=recursive,
+            recursive=not no_recursive,  # Default True, becomes False if --no-recursive
             extensions=extensions,
             scanners=list(scanners) if scanners else None,
             config=ctx.obj.config.dict(),
-            enrich=enrich and not no_ai,
+            enrich=enrich,
             ai_provider=ai_provider,
             max_size_bytes=max_size_bytes
         )
@@ -319,17 +333,12 @@ def list_parsers():
     formats = [
         ("PyTorch", ".pt, .pth, .bin", "✅"),
         ("TensorFlow", ".pb, .h5, .hdf5, .keras", "✅"),
-        ("ONNX", ".onnx", "✅"),
         ("Pickle", ".pkl, .pickle", "✅"),
-        ("Safetensors", ".safetensors", "✅"),
-        ("YAML/Config", ".yaml, .yml", "✅"),
-        ("JAX/Flax", ".msgpack, .flax", "✅"),
-        ("GGUF/GGML", ".gguf, .ggml, .q4_0, .q4_1, .q5_0, .q5_1, .q8_0", "✅"),
+        ("YAML", ".yaml, .yml", "✅"),
         ("JSON", ".json", "✅"),
-        ("NumPy", ".npy, .npz", "✅"),
         ("Joblib", ".joblib, .jbl", "✅"),
         ("Checkpoint", ".ckpt", "✅"),
-        ("TFLite", ".tflite, .lite", "✅"),
+        ("Scripts", ".py, .sh, .bash, .ps1, .bat, .cmd", "✅"),
     ]
     
     table = Table(title="Supported Model Formats", show_header=True)

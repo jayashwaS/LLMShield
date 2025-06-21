@@ -205,16 +205,16 @@ def demonstrate_remediation_strategy():
             {
                 "step": 1,
                 "action": "Extract and preserve model weights only",
-                "details": "Use safe_torch or safetensors to extract weights without code",
+                "details": "Use safe_torch to extract weights without code",
                 "effort": "1 hour",
                 "code": """
 import torch
-import safetensors.torch
+# Import a safe serialization library
 
 # Load with restricted unpickler
 checkpoint = torch.load('model.pth', map_location='cpu', pickle_module=RestrictedPickle)
 # Save weights only
-safetensors.torch.save_file(checkpoint['model_state_dict'], 'clean_model.safetensors')
+torch.save(checkpoint['model_state_dict'], 'clean_model.pt', _use_new_zipfile_serialization=True)
 """
             },
             {
@@ -233,7 +233,7 @@ safetensors.torch.save_file(checkpoint['model_state_dict'], 'clean_model.safeten
         
         "long_term_improvements": [
             "Implement automated security scanning in CI/CD",
-            "Use only safetensors format for model storage",
+            "Use only safe serialization formats for model storage",
             "Create isolated model loading environment",
             "Regular security audits of model repository"
         ]

@@ -1,13 +1,21 @@
-"""Scanner module for vulnerability detection in ML models."""
+"""LLMShield vulnerability scanners - Simplified for LLM security."""
 
-from .base import BaseScanner, ScanResult, Vulnerability, Severity
+from .base import BaseScanner, ScanResult, Severity, Vulnerability
+from .configurable_rule_scanner import ConfigurableRuleScanner
+from .pickle_scanner import PickleScanner
 from .scanner_manager import ScannerManager
-from .secret_scanner import SecretScanner
-from .pytorch_attribute_scanner import PyTorchAttributeScanner
-from .yaml_rule_scanner import YamlRuleScanner
 
 __all__ = [
-    'BaseScanner', 'ScanResult', 'Vulnerability', 'Severity', 
-    'ScannerManager', 'SecretScanner', 'PyTorchAttributeScanner',
-    'YamlRuleScanner'
+    # Base classes
+    "BaseScanner",
+    "ScanResult", 
+    "Severity",
+    "Vulnerability",
+    
+    # Core scanner implementations (only 2)
+    "PickleScanner",           # Pickle-specific opcode analysis
+    "ConfigurableRuleScanner", # All rule-based detection
+    
+    # Manager
+    "ScannerManager",
 ]

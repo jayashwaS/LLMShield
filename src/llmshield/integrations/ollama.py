@@ -175,22 +175,34 @@ class OllamaIntegration:
     def get_model_info(self, model_name: str) -> Dict[str, Any]:
         """Get information about a specific model."""
         try:
-            # Use ollama show command
+            # Use ollama show command without --json flag
             result = subprocess.run(
-                ['ollama', 'show', model_name, '--json'],
+                ['ollama', 'show', model_name],
                 check=True,
                 capture_output=True,
                 text=True
             )
             
-            return json.loads(result.stdout)
+            # Parse the text output
+            info = {
+                'name': model_name,
+                'details': result.stdout
+            }
+            
+            # Try to extract some basic info from the output
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower().replace(' ', '_')
+                    value = value.strip()
+                    info[key] = value
+            
+            return info
         
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to get model info: {e.stderr}")
             raise OllamaError(f"Failed to get info for {model_name}: {e.stderr}")
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse model info: {e}")
-            raise OllamaError(f"Invalid model info format: {e}")
         except Exception as e:
             logger.error(f"Error getting model info: {e}")
             raise OllamaError(f"Failed to get info for {model_name}: {e}")

@@ -9,16 +9,10 @@ from llmshield.parsers.base import BaseParser, ParserResult
 from llmshield.parsers.pickle_parser import PickleParser
 from llmshield.parsers.pytorch_parser import PyTorchParser
 from llmshield.parsers.tensorflow_parser import TensorFlowParser
-from llmshield.parsers.onnx_parser import ONNXParser
-from llmshield.parsers.safetensors_parser import SafetensorsParser
 from llmshield.parsers.yaml_parser import YAMLParser
-from llmshield.parsers.msgpack_parser import MsgPackParser
-from llmshield.parsers.gguf_parser import GGUFParser
-from llmshield.parsers.json_parser import JSONParser
-from llmshield.parsers.numpy_parser import NumpyParser
 from llmshield.parsers.joblib_parser import JoblibParser
 from llmshield.parsers.checkpoint_parser import CheckpointParser
-from llmshield.parsers.tflite_parser import TFLiteParser
+from llmshield.parsers.json_parser import JSONParser
 from llmshield.parsers.text_parser import TextParser
 
 logger = get_logger()
@@ -35,14 +29,8 @@ class ParserManager:
         self.parsers: List[Type[BaseParser]] = [
             PyTorchParser,      # Check PyTorch before generic pickle
             TensorFlowParser,
-            TFLiteParser,       # TensorFlow Lite
-            ONNXParser,
-            SafetensorsParser,
             CheckpointParser,   # .ckpt files
-            MsgPackParser,      # Flax/JAX models
-            GGUFParser,         # GGUF/GGML for llama.cpp
-            JSONParser,         # Configuration files
-            NumpyParser,        # NumPy arrays
+            JSONParser,         # JSON configuration files
             JoblibParser,       # Scikit-learn models
             YAMLParser,         # YAML configuration files
             TextParser,         # Text files, source code, configs
@@ -93,18 +81,40 @@ class ParserManager:
         
         logger.info(f"Attempting to parse file: {file_path}")
         
-        # Get appropriate parser
-        parser = self.get_parser(file_path)
-        logger.info(f"Using parser: {parser.__class__.__name__}")
-        
-        # Parse the file
-        result = parser.parse(file_path)
-        
-        # Log summary
-        logger.info(f"Parse complete. Warnings: {len(result.warnings)}, "
-                   f"Suspicious patterns: {len(result.suspicious_patterns)}")
-        
-        return result
+        try:
+            with logger.component_context("parser_manager"):
+                # Get appropriate parser
+                parser = self.get_parser(file_path)
+                parser_name = parser.__class__.__name__
+                
+                # Log parser selection
+                logger.log_parsing_start(str(file_path), parser_name)
+                logger.info(f"Using parser: {parser_name}")
+                
+                # Parse the file
+                result = parser.parse(file_path)
+                
+                # Log successful parsing with metadata
+                metadata = {
+                    'framework': result.metadata.framework,
+                    'format': result.metadata.format,
+                    'file_size': result.metadata.file_size,
+                    'model_type': getattr(result.metadata, 'model_type', None),
+                    'warnings': len(result.warnings),
+                    'suspicious_patterns': len(result.suspicious_patterns)
+                }
+                logger.log_parsing_success(str(file_path), metadata)
+                
+                # Log summary
+                logger.info(f"Parse complete. Warnings: {len(result.warnings)}, "
+                           f"Suspicious patterns: {len(result.suspicious_patterns)}")
+                
+                return result
+                
+        except Exception as e:
+            logger.log_parsing_failure(str(file_path), e)
+            logger.error(f"Failed to parse {file_path.name}: {str(e)}")
+            raise
     
     def validate_file(self, file_path: Path) -> bool:
         """Validate that a file is in a supported format."""

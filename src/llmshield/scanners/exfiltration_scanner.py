@@ -21,7 +21,8 @@ class ExfiltrationScanner(BaseScanner):
             # URLs and IPs
             r'https?://[^\s]+',
             r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
-            r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?',
+            # More specific domain pattern - requires at least 3 chars before TLD and word boundaries
+            r'\b[a-zA-Z][a-zA-Z0-9-]{2,}\.(?:com|org|net|io|gov|edu|co\.uk|de|jp|fr|au|us|ru|ch|it|nl|se|no|es|mil|info|biz|name|ly|ai|ml|app|dev|cloud|xyz|online|tech|site|store|blog|wiki)\b',
             
             # Network functions
             r'socket\.',
@@ -71,6 +72,17 @@ class ExfiltrationScanner(BaseScanner):
         """Scan for data exfiltration indicators"""
         vulnerabilities = []
         
+        # Skip for vocabulary files
+        from pathlib import Path
+        filename = Path(file_path).name.lower()
+        skip_files = ['vocab.json', 'tokenizer.json', 'merges.txt']
+        if filename in skip_files:
+            return ScanResult(
+                scanner_name=self.name,
+                vulnerabilities=[],
+                metadata={'skipped': True, 'reason': 'Vocabulary file'}
+            )
+        
         if parsed_data:
             # Convert to searchable text
             text = self._extract_all_text(parsed_data)
@@ -78,34 +90,50 @@ class ExfiltrationScanner(BaseScanner):
             # Check for network communication patterns
             network_matches = self._check_patterns(text, self.network_patterns)
             for match, pattern in network_matches:
+                # Clean up the match for better display
+                artifact = match if isinstance(match, str) else str(match)
+                if len(artifact) > 200:
+                    artifact = artifact[:200] + "..."
+                
                 vulnerabilities.append(Vulnerability(
                     severity=Severity.HIGH,
                     category="Network Communication",
                     description="Potential network communication detected",
-                    details=f"Found: {match[:100]}... (pattern: {pattern})",
-                    remediation="Review network operations for data exfiltration"
+                    details=f"Suspicious network-related content found",
+                    remediation="Review network operations for data exfiltration",
+                    evidence={'artifact': artifact}
                 ))
             
             # Check for file access patterns
             file_matches = self._check_patterns(text, self.file_patterns)
             for match, pattern in file_matches:
+                artifact = match if isinstance(match, str) else str(match)
+                if len(artifact) > 200:
+                    artifact = artifact[:200] + "..."
+                    
                 vulnerabilities.append(Vulnerability(
                     severity=Severity.MEDIUM,
                     category="File Access",
                     description="File system access detected",
-                    details=f"Found: {match[:100]}... (pattern: {pattern})",
-                    remediation="Verify file operations are legitimate"
+                    details=f"Suspicious file operation found",
+                    remediation="Verify file operations are legitimate",
+                    evidence={'artifact': artifact}
                 ))
             
             # Check for information gathering
             info_matches = self._check_patterns(text, self.info_gathering_patterns)
             for match, pattern in info_matches:
+                artifact = match if isinstance(match, str) else str(match)
+                if len(artifact) > 200:
+                    artifact = artifact[:200] + "..."
+                    
                 vulnerabilities.append(Vulnerability(
                     severity=Severity.MEDIUM,
                     category="Information Gathering",
                     description="System information access detected",
-                    details=f"Found: {match[:100]}... (pattern: {pattern})",
-                    remediation="Check if system info access is necessary"
+                    details=f"Suspicious system information access found",
+                    remediation="Check if system info access is necessary",
+                    evidence={'artifact': artifact}
                 ))
             
             # Check for encoding/encryption
@@ -128,12 +156,25 @@ class ExfiltrationScanner(BaseScanner):
             ]
             cred_matches = self._check_patterns(text, cred_patterns)
             for match, pattern in cred_matches:
+                # Mask sensitive parts of credentials
+                artifact = match if isinstance(match, str) else str(match)
+                # Try to mask the actual secret value
+                if '=' in artifact:
+                    parts = artifact.split('=', 1)
+                    if len(parts) == 2:
+                        artifact = parts[0] + '=<REDACTED>'
+                elif ':' in artifact:
+                    parts = artifact.split(':', 1)
+                    if len(parts) == 2:
+                        artifact = parts[0] + ':<REDACTED>'
+                        
                 vulnerabilities.append(Vulnerability(
                     severity=Severity.HIGH,
                     category="Hardcoded Credentials",
                     description="Potential hardcoded credentials found",
-                    details=f"Found credential pattern",
-                    remediation="Remove hardcoded credentials immediately"
+                    details=f"Credential pattern detected",
+                    remediation="Remove hardcoded credentials immediately",
+                    evidence={'artifact': artifact}
                 ))
         
         return ScanResult(
@@ -166,9 +207,19 @@ class ExfiltrationScanner(BaseScanner):
         matches = []
         for pattern in patterns:
             try:
-                found = re.findall(pattern, text, re.IGNORECASE)
-                for match in found:
-                    matches.append((match, pattern))
+                # Use finditer to get match objects with position info
+                for match_obj in re.finditer(pattern, text, re.IGNORECASE):
+                    match_text = match_obj.group(0)
+                    # Get context around the match (50 chars before and after)
+                    start = max(0, match_obj.start() - 50)
+                    end = min(len(text), match_obj.end() + 50)
+                    context = text[start:end]
+                    
+                    # Clean up context for display
+                    context = context.replace('\n', ' ').replace('\r', ' ')
+                    context = ' '.join(context.split())  # Normalize whitespace
+                    
+                    matches.append((context, pattern))
             except re.error:
                 # Skip invalid regex patterns
                 continue

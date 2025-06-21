@@ -1,6 +1,8 @@
 """Directory scanning functionality for LLMShield."""
 
 import os
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from rich.console import Console
@@ -16,22 +18,42 @@ logger = get_logger(__name__)
 console = Console()
 
 
-def collect_model_files(path: Path, extensions: List[str], recursive: bool = False) -> List[Path]:
+def collect_model_files(path: Path, extensions: Optional[List[str]], recursive: bool = False) -> List[Path]:
     """Collect all model files in a directory."""
     model_files = []
     
+    # Default directories to exclude
+    exclude_dirs = {'.git', '__pycache__', '.pytest_cache', 'node_modules', '.venv', 'venv', '.tox'}
+    
     if path.is_file():
         # Single file
-        if any(str(path).endswith(ext) for ext in extensions):
+        if extensions is None:
+            # If no extension filter, include all files
+            model_files.append(path)
+        elif any(str(path).endswith(ext) for ext in extensions):
             model_files.append(path)
     else:
         # Directory
-        if recursive:
-            for ext in extensions:
-                model_files.extend(path.rglob(f"*{ext}"))
+        if extensions is None:
+            # Collect all files when no extension filter
+            if recursive:
+                for f in path.rglob('*'):
+                    if f.is_file() and not any(part in exclude_dirs for part in f.parts):
+                        model_files.append(f)
+            else:
+                for f in path.glob('*'):
+                    if f.is_file():
+                        model_files.append(f)
         else:
-            for ext in extensions:
-                model_files.extend(path.glob(f"*{ext}"))
+            # Filter by extensions
+            if recursive:
+                for ext in extensions:
+                    for f in path.rglob(f"*{ext}"):
+                        if not any(part in exclude_dirs for part in f.parts):
+                            model_files.append(f)
+            else:
+                for ext in extensions:
+                    model_files.extend(path.glob(f"*{ext}"))
     
     # Sort for consistent ordering
     return sorted(model_files)
@@ -42,7 +64,7 @@ def scan_directory(
     output: Optional[str] = None,
     formats: List[str] = ['json', 'html'],
     recursive: bool = False,
-    extensions: List[str] = None,
+    extensions: Optional[List[str]] = None,
     scanners: Optional[List[str]] = None,
     config: Dict[str, Any] = None,
     enrich: bool = False,
@@ -55,13 +77,14 @@ def scan_directory(
     Returns:
         Tuple of (files_scanned, total_vulnerabilities, max_severity)
     """
-    if extensions is None:
-        extensions = [
-            '.pt', '.pth', '.pkl', '.pb', '.h5', '.hdf5', '.keras', '.onnx', 
-            '.safetensors', '.bin', '.yaml', '.yml', '.msgpack', '.flax',
-            '.gguf', '.ggml', '.q4_0', '.q4_1', '.q5_0', '.q5_1', '.q8_0',
-            '.json', '.npy', '.npz', '.joblib', '.jbl', '.ckpt', '.tflite', '.lite'
-        ]
+    # Don't set default extensions here - let the caller decide
+    # if extensions is None:
+    #     extensions = [
+    #         '.pt', '.pth', '.pkl', '.pb', '.h5', '.hdf5', '.keras', '.onnx', 
+    #         '.bin', '.yaml', '.yml', '.msgpack', '.flax',
+    #         '.gguf', '.ggml', '.q4_0', '.q4_1', '.q5_0', '.q5_1', '.q8_0',
+    #         '.json', '.npy', '.npz', '.joblib', '.jbl', '.ckpt', '.tflite', '.lite'
+    #     ]
     
     path_obj = Path(path)
     
@@ -69,7 +92,10 @@ def scan_directory(
     model_files = collect_model_files(path_obj, extensions, recursive)
     
     if not model_files:
-        logger.warning(f"No model files found in {path} with extensions: {', '.join(extensions)}")
+        if extensions:
+            logger.warning(f"No model files found in {path} with extensions: {', '.join(extensions)}")
+        else:
+            logger.warning(f"No files found in {path}")
         return 0, 0, None
     
     # Filter files by size if max_size_bytes is specified

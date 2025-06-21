@@ -40,6 +40,16 @@ class PatternScanner(BaseScanner):
         """Scan for known vulnerability patterns."""
         logger.info(f"Running pattern scan on {file_path}")
         
+        # Skip pattern scanning for vocabulary files - they contain words not code
+        filename = str(file_path).lower()
+        skip_files = ['vocab.json', 'tokenizer.json', 'merges.txt']
+        if any(skip in filename for skip in skip_files):
+            return ScanResult(
+                scanner_name=self.name,
+                vulnerabilities=[],
+                metadata={'skipped': True, 'reason': 'Vocabulary file - contains tokens not code'}
+            )
+        
         vulnerabilities = []
         scan_metadata = {
             'patterns_checked': 0,

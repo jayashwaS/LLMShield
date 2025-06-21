@@ -42,14 +42,30 @@ class PickleParser(BaseParser):
         """Validate that the file is a valid pickle file."""
         try:
             with open(file_path, 'rb') as f:
-                # Try to read pickle opcodes
+                # Check for pickle protocol markers
+                header = f.read(2)
+                if header in [b'\x80\x02', b'\x80\x03', b'\x80\x04', b'\x80\x05']:  # Protocol 2-5
+                    return True
+                # Also check if it starts with common pickle opcodes
+                f.seek(0)
+                first_byte = f.read(1)
+                if first_byte in [b'c', b'(', b'}', b']', b'N', b'K', b'V', b'I', b'F']:
+                    return True
+                # Try to parse with pickletools as last resort
+                f.seek(0)
                 pickletools.dis(f, annotate=0, out=io.StringIO())
             return True
         except Exception:
-            return False
+            # Even if pickletools fails, it might still be a valid pickle
+            # Let the parser try to handle it
+            return True
     
     def parse(self, file_path: Path) -> ParserResult:
         """Parse pickle file and extract metadata."""
+        # Convert to Path if string
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+            
         logger.info(f"Parsing pickle file: {file_path}")
         
         metadata = self.extract_metadata(file_path)

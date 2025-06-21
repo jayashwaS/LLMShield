@@ -22,9 +22,27 @@ class SignatureScanner(BaseScanner):
         """Scan for known malicious signatures"""
         vulnerabilities = []
         
+        # Skip for vocabulary files
+        from pathlib import Path
+        filename = Path(file_path).name.lower()
+        skip_files = ['vocab.json', 'tokenizer.json', 'merges.txt', 'tokenizer_config.json']
+        if filename in skip_files:
+            return ScanResult(
+                scanner_name=self.name,
+                vulnerabilities=[],
+                metadata={'skipped': True, 'reason': 'Vocabulary file'}
+            )
+        
+        # Add debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"SignatureScanner: Scanning {file_path}")
+        logger.debug(f"SignatureScanner: parsed_data type: {type(parsed_data)}")
+        
         if parsed_data:
             # Convert parsed data to searchable text
             searchable_text = self._data_to_text(parsed_data)
+            logger.debug(f"SignatureScanner: searchable_text[:200]: {searchable_text[:200]}")
             
             # Check against known signatures
             for pattern, severity, category, description in self.signatures_db.get_all_signatures():
@@ -48,14 +66,20 @@ class SignatureScanner(BaseScanner):
                     remediation="Review code for hidden functionality"
                 ))
             
-            # Check for suspicious strings
+            # Check for suspicious strings with context
             for suspicious in self.signatures_db.get_suspicious_strings():
-                if suspicious.lower() in searchable_text.lower():
+                # Skip "token" in ML model files - it's too common
+                if suspicious.lower() == "token" and any(ext in filename for ext in ['.json', '.md']):
+                    continue
+                    
+                # Look for actual assignments or values, not just the word
+                pattern = rf'\b{suspicious}["\']?\s*[:=]\s*["\']?[\w\-]{{10,}}'
+                if re.search(pattern, searchable_text, re.IGNORECASE):
                     vulnerabilities.append(Vulnerability(
                         severity=Severity.LOW,
                         category="Information Disclosure",
                         description=f"Potential sensitive data: {suspicious}",
-                        details=f"Found reference to '{suspicious}' which may contain sensitive data",
+                        details=f"Found assignment pattern for '{suspicious}' which may contain sensitive data",
                         remediation="Ensure sensitive data is properly protected"
                     ))
         

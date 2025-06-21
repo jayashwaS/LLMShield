@@ -1,0 +1,64 @@
+# Model Backdoor and Malicious Pattern Rules
+# Detects patterns commonly used in ML model backdoors
+
+settings:
+  enabled: true
+  default_severity: HIGH
+
+rules:
+  eicar_test_signature:
+    enabled: true
+    name: "EICAR Test Signature"
+    description: "EICAR antivirus test file signature"
+    patterns:
+      - 'X5O!P%@AP\[4\\PZX54\(P\^\)7CC\)7\}\$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!\$H\+H\*'
+    severity: CRITICAL
+    tags: ['malware', 'test', 'eicar']
+    remediation: "This is a test pattern - remove from production models"
+    
+  reverse_shell:
+    enabled: true
+    name: "Reverse Shell Pattern"
+    description: "Detects reverse shell connections"
+    patterns:
+      - 'socket.*connect.*SOCK_STREAM'
+      - 'nc\s+-[lnv]*e\s+'
+      - 'bash\s+-i\s+>&\s*/dev/tcp/'
+      - 'python.*socket.*connect'
+    severity: CRITICAL
+    tags: ['backdoor', 'shell', 'network']
+    remediation: "Remove network connection code from model files"
+    
+  data_exfiltration:
+    enabled: true
+    name: "Data Exfiltration Patterns"
+    description: "Detects attempts to send data externally"
+    patterns:
+      - 'requests\.(post|put)\s*\('
+      - 'urllib.*urlopen\s*\('
+      - 'http\.client\.HTTPConnection'
+      - 'curl\s+-X\s+(POST|PUT)'
+      - 'wget\s+--post-data'
+    severity: HIGH
+    tags: ['exfiltration', 'network', 'data_theft']
+    remediation: "Remove external network calls from model code"
+    exclude_patterns:
+      - 'localhost'
+      - '127.0.0.1'
+      - '# example'
+    
+  hidden_layers:
+    enabled: true
+    name: "Hidden Layer Patterns"
+    description: "Detects suspicious hidden layer names in models"
+    patterns:
+      - '_backdoor_'
+      - '_trigger_'
+      - '_malicious_'
+      - 'evil_layer'
+      - 'hack_module'
+    severity: HIGH
+    tags: ['model_architecture', 'backdoor']
+    remediation: "Inspect model architecture for suspicious layers"
+    context:
+      file_extensions: ['.pt', '.pth', '.pkl', '.h5']

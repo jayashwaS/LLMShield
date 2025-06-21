@@ -4,8 +4,14 @@ This is a wrapper around YamlRuleScanner focused on secret detection.
 """
 
 from typing import Dict, Any, List
+from pathlib import Path
+from fnmatch import fnmatch
+
 from .yaml_rule_scanner import YamlRuleScanner
 from .base import ScanResult
+from ..core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class SecretScanner(YamlRuleScanner):
@@ -37,6 +43,26 @@ class SecretScanner(YamlRuleScanner):
     
     def scan(self, file_path: str, parsed_data: Dict[str, Any]) -> ScanResult:
         """Scan for secrets using YAML-defined rules."""
+        # Check if this file should be excluded for secrets scanning
+        filename = Path(file_path).name
+        exclusions = self.config.get('exclusions', {}).get('scanner_exclusions', {})
+        
+        # Check vocabulary files exclusion
+        vocab_patterns = exclusions.get('vocabulary_files', {}).get('patterns', [])
+        skip_scanners = exclusions.get('vocabulary_files', {}).get('skip_scanners', [])
+        
+        for pattern in vocab_patterns:
+            # Handle ** patterns by removing the prefix
+            if pattern.startswith('**/'):
+                pattern = pattern[3:]
+            if fnmatch(filename, pattern) and 'secrets' in skip_scanners:
+                logger.debug(f"Skipping secrets scan for vocabulary file: {filename}")
+                return ScanResult(
+                    scanner_name=self.name,
+                    vulnerabilities=[],
+                    metadata={'skipped': True, 'reason': 'Vocabulary file excluded'}
+                )
+        
         # Use parent's scan method
         result = super().scan(file_path, parsed_data)
         

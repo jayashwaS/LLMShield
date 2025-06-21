@@ -96,6 +96,8 @@ class ScannerManager:
                 if scanner.can_scan(file_path, parsed_data):
                     logger.info(f"Running scanner: {scanner.name}")
                     result = scanner.scan(file_path, parsed_data)
+                    # Set the file path in the result
+                    result.file_path = str(file_path)
                     results.append(result)
                     
                     # Log summary
@@ -110,11 +112,13 @@ class ScannerManager:
                     logger.debug(f"Scanner {scanner.name} cannot handle file {file_path}")
                     
             except Exception as e:
-                logger.error(f"Scanner {scanner.name} failed: {str(e)}")
+                logger.log_scan_failure(str(file_path), scanner.name, e)
+                logger.error(f"Scanner {scanner.name} failed: {str(e)}", exc_info=True)
                 # Create error result
                 error_result = ScanResult(
                     scanner_name=scanner.name,
-                    error=str(e)
+                    error=str(e),
+                    file_path=str(file_path)
                 )
                 results.append(error_result)
                 
@@ -166,32 +170,18 @@ class ScannerManager:
         }
         
     def initialize_default_scanners(self, config: Optional[Dict[str, Any]] = None) -> None:
-        """Initialize all default scanners."""
-        # Import scanners here to avoid circular imports
+        """Initialize core scanners for LLM model security."""
+        # Import only essential scanners
         from .pickle_scanner import PickleScanner
-        from .pattern_scanner import PatternScanner
-        from .code_scanner import CodeScanner
-        from .signature_scanner import SignatureScanner
-        from .anomaly_scanner import AnomalyScanner
-        from .exfiltration_scanner import ExfiltrationScanner
-        from .entropy_scanner import EntropyScanner
-        from .secret_scanner import SecretScanner
-        from .pytorch_attribute_scanner import PyTorchAttributeScanner
+        from .configurable_rule_scanner import ConfigurableRuleScanner
         
-        # Initialize scanners
+        # Initialize only 2 core scanners
         scanners = [
-            PickleScanner(config),
-            PatternScanner(config),
-            CodeScanner(),
-            SignatureScanner(),
-            AnomalyScanner(),
-            ExfiltrationScanner(),
-            EntropyScanner(),
-            SecretScanner(config),  # Now uses config dict
-            PyTorchAttributeScanner(config)  # Now uses config dict
+            PickleScanner(config),       # Critical: Detects pickle-specific exploits
+            ConfigurableRuleScanner(),   # Critical: All rule-based detection from YAML files
         ]
         
         for scanner in scanners:
             self.add_scanner(scanner)
             
-        logger.info(f"Initialized {len(scanners)} default scanners")
+        logger.info(f"Initialized {len(scanners)} core scanners for LLM security")

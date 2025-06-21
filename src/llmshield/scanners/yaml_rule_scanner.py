@@ -10,9 +10,13 @@ import base64
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 from dataclasses import dataclass
+from fnmatch import fnmatch
 
 from .base import BaseScanner, Vulnerability, Severity, ScanResult
 from .utils import create_vulnerability
+from ..core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -36,6 +40,8 @@ class YamlRuleScanner(BaseScanner):
         self.config_path = config_path or self._get_default_config_path()
         self.rules = self._load_rules()
         self.config = self._load_config()
+        self.exclusions = self._load_exclusions()
+        self.allowlist = self._load_allowlist()
         self._name = "YamlRuleScanner"
         self._description = "Scans using YAML-defined detection rules"
         self._supported_formats = ["*"]
@@ -58,9 +64,10 @@ class YamlRuleScanner(BaseScanner):
         
     def _get_default_config_path(self) -> str:
         """Get the default configuration file path."""
-        # Try multiple locations
+        # Try multiple locations - prioritize detection_rules.yaml
         possible_paths = [
             Path(__file__).parent.parent.parent.parent / "config" / "detection_rules.yaml",
+            Path(__file__).parent.parent.parent.parent / "config" / "scanner_rules_consolidated.yaml",
             Path.home() / ".llmshield" / "detection_rules.yaml",
             Path("/etc/llmshield/detection_rules.yaml"),
         ]
@@ -72,34 +79,120 @@ class YamlRuleScanner(BaseScanner):
         # Return the first path as default (project config)
         return str(possible_paths[0])
     
+    def _load_exclusions(self) -> Dict[str, Any]:
+        """Load scanner exclusions configuration from main rules file."""
+        # Exclusions are now in the main detection_rules.yaml
+        return self.config.get('exclusions', {})
+    
+    def _load_allowlist(self) -> Dict[str, Any]:
+        """Load false positive allowlist from main rules file."""
+        # False positive handling is now in the main detection_rules.yaml
+        return self.config.get('false_positive_handling', {})
+    
+    def _get_file_context(self, file_path: str) -> Dict[str, Any]:
+        """Get context information for the file."""
+        path = Path(file_path)
+        filename = path.name
+        extension = path.suffix
+        
+        context = {
+            'filename': filename,
+            'extension': extension,
+            'is_tokenizer': False,
+            'is_config': False,
+            'is_model': False
+        }
+        
+        # Check if it's a tokenizer file
+        tokenizer_patterns = self.exclusions.get('scanner_exclusions', {}).get('vocabulary_files', {}).get('patterns', [])
+        for pattern in tokenizer_patterns:
+            if fnmatch(filename, pattern):
+                context['is_tokenizer'] = True
+                break
+        
+        # Check if it's a config file
+        config_patterns = self.exclusions.get('scanner_exclusions', {}).get('config_files', {}).get('patterns', [])
+        for pattern in config_patterns:
+            if fnmatch(filename, pattern):
+                context['is_config'] = True
+                break
+        
+        # Check if it's a model file
+        model_patterns = self.exclusions.get('scanner_exclusions', {}).get('model_files', {}).get('patterns', [])
+        for pattern in model_patterns:
+            if fnmatch(filename, pattern):
+                context['is_model'] = True
+                break
+        
+        return context
+    
+    def _should_scan_file(self, file_path: str, file_context: Dict[str, Any]) -> bool:
+        """Check if this scanner should scan this file."""
+        filename = Path(file_path).name
+        scanner_name = self.name
+        
+        # Check each file exclusion category
+        for category, config in self.exclusions.get('scanner_exclusions', {}).items():
+            patterns = config.get('patterns', [])
+            
+            # Check if file matches any pattern in this category
+            matches = False
+            for pattern in patterns:
+                if fnmatch(filename, pattern):
+                    matches = True
+                    break
+            
+            if matches:
+                # Check if this scanner is in skip list
+                skip_scanners = config.get('skip_scanners', [])
+                if scanner_name in skip_scanners:
+                    return False
+                
+                # Check if allowed_scanners is defined and scanner is not in it
+                allowed_scanners = config.get('allowed_scanners', [])
+                if allowed_scanners and scanner_name not in allowed_scanners:
+                    return False
+        
+        return True
+    
     def _load_config(self) -> Dict[str, Any]:
         """Load the full configuration."""
         try:
             with open(self.config_path, 'r') as f:
                 return yaml.safe_load(f)
         except Exception as e:
-            print(f"Warning: Could not load config from {self.config_path}: {e}")
+            logger.warning(f"Could not load config from {self.config_path}: {e}", 
+                          component="yaml_rule_scanner", phase="initialization")
             return {}
     
     def _load_rules(self) -> List[DetectionRule]:
         """Load detection rules from YAML configuration."""
         rules = []
+        categories = []
+        
+        # Log rule loading start
+        logger.log_rule_loading_start(self.config_path)
         
         try:
-            with open(self.config_path, 'r') as f:
-                config = yaml.safe_load(f)
-            
-            # Ensure config is a dictionary
-            if not isinstance(config, dict):
-                print(f"Warning: Config file {self.config_path} did not load as a dictionary")
-                return rules
+            with logger.phase_context("rule_loading"):
+                with open(self.config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                
+                # Ensure config is a dictionary
+                if not isinstance(config, dict):
+                    logger.warning(f"Config file {self.config_path} did not load as a dictionary")
+                    return rules
             
             # Check global settings
             settings = config.get('settings', {})
             all_rules_enabled = settings.get('all_rules_enabled', True)
             
+            # Track loaded categories
+            rule_categories = []
+                
             # Load secret detection rules
             if 'secrets' in config and isinstance(config['secrets'], dict):
+                categories.append('secrets')
                 for rule_id, rule_data in config['secrets'].items():
                     if isinstance(rule_data, dict):
                         # Check if rule is enabled
@@ -118,8 +211,57 @@ class YamlRuleScanner(BaseScanner):
                             category='secrets'
                         ))
             
-            # Load malicious code patterns
+            # Load code execution patterns
+            if 'code_execution' in config and isinstance(config['code_execution'], dict):
+                categories.append('code_execution')
+                for rule_id, rule_data in config['code_execution'].items():
+                    if isinstance(rule_data, dict):
+                        rules.append(DetectionRule(
+                            id=rule_id,
+                            name=rule_data.get('name', rule_id),
+                            patterns=rule_data.get('patterns', []),
+                            severity=self._parse_severity(rule_data.get('severity', 'HIGH')),
+                            description=rule_data.get('description', ''),
+                            remediation=rule_data.get('remediation', ''),
+                            tags=rule_data.get('tags', []),
+                            category='code_execution'
+                        ))
+            
+            # Load malware signatures
+            if 'malware_signatures' in config and isinstance(config['malware_signatures'], dict):
+                categories.append('malware_signatures')
+                for rule_id, rule_data in config['malware_signatures'].items():
+                    if isinstance(rule_data, dict):
+                        rules.append(DetectionRule(
+                            id=rule_id,
+                            name=rule_data.get('name', rule_id),
+                                patterns=rule_data.get('patterns', []),
+                                severity=self._parse_severity(rule_data.get('severity', 'CRITICAL')),
+                                description=rule_data.get('description', ''),
+                                remediation=rule_data.get('remediation', ''),
+                                tags=rule_data.get('tags', []),
+                                category='malware_signatures'
+                            ))
+                
+            # Load network exfiltration patterns
+            if 'network_exfiltration' in config and isinstance(config['network_exfiltration'], dict):
+                categories.append('network_exfiltration')
+                for rule_id, rule_data in config['network_exfiltration'].items():
+                        if isinstance(rule_data, dict):
+                            rules.append(DetectionRule(
+                                id=rule_id,
+                                name=rule_data.get('name', rule_id),
+                                patterns=rule_data.get('patterns', []),
+                                severity=self._parse_severity(rule_data.get('severity', 'HIGH')),
+                                description=rule_data.get('description', ''),
+                                remediation=rule_data.get('remediation', ''),
+                                tags=rule_data.get('tags', []),
+                                category='network_exfiltration'
+                            ))
+                
+                # Keep backward compatibility - load malicious_code if exists
             if 'malicious_code' in config and isinstance(config['malicious_code'], dict):
+                categories.append('malicious_code')
                 for rule_id, rule_data in config['malicious_code'].items():
                     if isinstance(rule_data, dict):
                         # Check if rule is enabled
@@ -140,6 +282,7 @@ class YamlRuleScanner(BaseScanner):
             
             # Load LLM security patterns
             if 'llm_security' in config and isinstance(config['llm_security'], dict):
+                categories.append('llm_security')
                 for rule_id, rule_data in config['llm_security'].items():
                     if isinstance(rule_data, dict):
                         rules.append(DetectionRule(
@@ -155,6 +298,7 @@ class YamlRuleScanner(BaseScanner):
             
             # Load suspicious string patterns
             if 'suspicious_strings' in config and isinstance(config['suspicious_strings'], dict):
+                categories.append('suspicious_strings')
                 for rule_id, rule_data in config['suspicious_strings'].items():
                     if isinstance(rule_data, dict):
                         rules.append(DetectionRule(
@@ -167,9 +311,46 @@ class YamlRuleScanner(BaseScanner):
                             tags=rule_data.get('tags', []),
                             category='suspicious_strings'
                         ))
-            
+                
+            # Load PyTorch threats
+            if 'pytorch_threats' in config and isinstance(config['pytorch_threats'], dict):
+                categories.append('pytorch_threats')
+                for rule_id, rule_data in config['pytorch_threats'].items():
+                        if isinstance(rule_data, dict):
+                            rules.append(DetectionRule(
+                                id=rule_id,
+                                name=rule_data.get('name', rule_id),
+                                patterns=rule_data.get('patterns', []),
+                                severity=self._parse_severity(rule_data.get('severity', 'HIGH')),
+                                description=rule_data.get('description', ''),
+                                remediation=rule_data.get('remediation', ''),
+                                tags=rule_data.get('tags', []),
+                                category='pytorch_threats'
+                            ))
+                
+            # Load CVE patterns
+            if 'cve_patterns' in config and isinstance(config['cve_patterns'], dict):
+                categories.append('cve_patterns')
+                for rule_id, rule_data in config['cve_patterns'].items():
+                        if isinstance(rule_data, dict):
+                            rules.append(DetectionRule(
+                                id=rule_id,
+                                name=rule_data.get('name', rule_id),
+                                patterns=rule_data.get('patterns', []),
+                                severity=self._parse_severity(rule_data.get('severity', 'CRITICAL')),
+                                description=rule_data.get('description', ''),
+                                remediation=rule_data.get('remediation', ''),
+                                tags=rule_data.get('tags', []),
+                                category='cve_patterns'
+                            ))
+                
+                # Log successful rule loading
+                logger.log_rule_loading_success(len(rules), categories)
+                logger.debug(f"Loaded {len(rules)} rules from categories: {', '.join(categories)}")
+                
         except Exception as e:
-            print(f"Error loading rules: {e}")
+            logger.log_rule_loading_failure(self.config_path, e)
+            logger.error(f"Error loading rules: {e}", exc_info=True)
             # Return empty rules list if loading fails
             
         return rules
@@ -189,31 +370,60 @@ class YamlRuleScanner(BaseScanner):
         """Scan using YAML-defined rules."""
         vulnerabilities = []
         
-        # If parsed_data has metadata with custom_attributes containing loaded_data, use that
+        # Check if this scanner should skip this file type
+        file_context = self._get_file_context(file_path)
+        if not self._should_scan_file(file_path, file_context):
+            return ScanResult(
+                scanner_name=self.name,
+                vulnerabilities=[],
+                metadata={'skipped': True, 'reason': 'File type excluded for this scanner'}
+            )
+        
+        # Parse the data structure properly
         data_to_scan = parsed_data
         if isinstance(parsed_data, dict):
-            # Check if we have metadata.custom_attributes.loaded_data
-            metadata = parsed_data.get('metadata', {})
-            if isinstance(metadata, dict):
-                custom_attrs = metadata.get('custom_attributes', {})
-                if isinstance(custom_attrs, dict):
-                    # Check for loaded_data
-                    if 'loaded_data' in custom_attrs:
-                        actual_data = custom_attrs['loaded_data']
-                        # Create a new dict with the actual data for scanning
-                        data_to_scan = {'content': actual_data}
-                        if isinstance(actual_data, dict):
-                            data_to_scan.update(actual_data)
-                    # Also check for parsed_data (JSON files)
-                    elif 'parsed_data' in custom_attrs:
-                        actual_data = custom_attrs['parsed_data']
-                        data_to_scan = {'content': actual_data}
-                        if isinstance(actual_data, dict):
-                            data_to_scan.update(actual_data)
-                    # Also check for raw_content  
-                    elif 'raw_content' in custom_attrs:
-                        data_to_scan = {'raw_content': custom_attrs['raw_content']}
-            # Also check old format (direct custom_attributes)
+            # Check various possible data locations in order of preference
+            
+            # 1. Direct custom_attributes at top level (from scan_directory.py)
+            if any(key in parsed_data for key in ['loaded_data', 'raw_content', 'parsed_data']):
+                # This is likely custom_attributes merged at top level
+                if 'loaded_data' in parsed_data:
+                    actual_data = parsed_data['loaded_data']
+                    data_to_scan = {'content': actual_data}
+                    if isinstance(actual_data, dict):
+                        data_to_scan.update(actual_data)
+                elif 'parsed_data' in parsed_data:
+                    actual_data = parsed_data['parsed_data']
+                    data_to_scan = {'content': actual_data}
+                    if isinstance(actual_data, dict):
+                        data_to_scan.update(actual_data)
+                elif 'raw_content' in parsed_data:
+                    data_to_scan = {'raw_content': parsed_data['raw_content']}
+            
+            # 2. Check metadata.custom_attributes structure
+            elif 'metadata' in parsed_data:
+                metadata = parsed_data.get('metadata', {})
+                if isinstance(metadata, dict):
+                    custom_attrs = metadata.get('custom_attributes', {})
+                    if isinstance(custom_attrs, dict):
+                        # Check for loaded_data
+                        if 'loaded_data' in custom_attrs:
+                            actual_data = custom_attrs['loaded_data']
+                            # Create a new dict with the actual data for scanning
+                            data_to_scan = {'content': actual_data}
+                            if isinstance(actual_data, dict):
+                                data_to_scan.update(actual_data)
+                        # Also check for parsed_data (JSON files)
+                        elif 'parsed_data' in custom_attrs:
+                            actual_data = custom_attrs['parsed_data']
+                            data_to_scan = {'content': actual_data}
+                            if isinstance(actual_data, dict):
+                                data_to_scan.update(actual_data)
+                        # Also check for raw_content  
+                        elif 'raw_content' in custom_attrs:
+                            data_to_scan = {'raw_content': custom_attrs['raw_content']}
+            
+            # 3. Check direct custom_attributes (legacy format)
             elif 'custom_attributes' in parsed_data:
                 custom_attrs = parsed_data.get('custom_attributes', {})
                 if isinstance(custom_attrs, dict):
@@ -244,15 +454,36 @@ class YamlRuleScanner(BaseScanner):
             )
         
         # Apply rule-based detection
+        # Track unique findings to avoid duplicates
+        seen_findings = set()
+        
         for string_content in strings_to_scan:
             # Check against all loaded rules
-            rule_vulns = self._check_rules(string_content, file_path)
-            vulnerabilities.extend(rule_vulns)
+            rule_vulns = self._check_rules(string_content, file_path, file_context)
+            for vuln in rule_vulns:
+                # Create a unique key for this finding based on rule_id, line_content, and match position
+                finding_key = (
+                    vuln.evidence.get('rule_id', ''),
+                    vuln.evidence.get('line_content', ''),
+                    vuln.evidence.get('match_position', 0)
+                )
+                if finding_key not in seen_findings:
+                    seen_findings.add(finding_key)
+                    vulnerabilities.append(vuln)
             
             # Check entropy if configured
             if self.config.get('entropy_rules'):
                 entropy_vulns = self._check_entropy(string_content, file_path)
-                vulnerabilities.extend(entropy_vulns)
+                for vuln in entropy_vulns:
+                    # Create unique key for entropy findings
+                    finding_key = (
+                        'entropy',
+                        vuln.evidence.get('masked_value', ''),
+                        vuln.evidence.get('length', 0)
+                    )
+                    if finding_key not in seen_findings:
+                        seen_findings.add(finding_key)
+                        vulnerabilities.append(vuln)
         
         # PyTorch-specific checks
         if parsed_data.get('type') == 'pytorch' and 'pytorch_rules' in self.config:
@@ -263,6 +494,9 @@ class YamlRuleScanner(BaseScanner):
         if parsed_data.get('type') == 'pickle' and 'pickle_dangerous_opcodes' in self.config:
             pickle_vulns = self._check_pickle_opcodes(parsed_data, file_path)
             vulnerabilities.extend(pickle_vulns)
+        
+        # Log scan completion
+        logger.log_scan_complete(file_path, self.name, len(vulnerabilities))
         
         return ScanResult(
             scanner_name=self.name,
@@ -341,7 +575,7 @@ class YamlRuleScanner(BaseScanner):
         
         return strings
     
-    def _check_rules(self, content: str, file_path: str) -> List[Vulnerability]:
+    def _check_rules(self, content: str, file_path: str, file_context: Dict[str, Any] = None) -> List[Vulnerability]:
         """Check content against all loaded rules."""
         vulnerabilities = []
         
@@ -349,10 +583,24 @@ class YamlRuleScanner(BaseScanner):
         lines = content.splitlines()
         
         for rule in self.rules:
+            # Skip certain rule categories for tokenizer files
+            if file_context and file_context.get('is_tokenizer'):
+                if rule.category in ['code_execution', 'malicious_code'] and self.name == 'SecretScanner':
+                    continue
+            
             for pattern in rule.patterns:
                 try:
                     matches = re.finditer(pattern, content, re.IGNORECASE | re.MULTILINE)
                     for match in matches:
+                        # For tokenizer files, apply stricter validation
+                        if file_context and file_context.get('is_tokenizer'):
+                            matched_text = match.group(0)
+                            # Skip if it's just the word "token" or similar
+                            if matched_text.lower() in self.allowlist.get('allowlist_words', []):
+                                continue
+                            # Skip if it's an ML parameter name
+                            if matched_text.lower() in self.allowlist.get('ml_parameter_names', []):
+                                continue
                         # Calculate line number
                         line_start = content[:match.start()].count('\n') + 1
                         line_end = content[:match.end()].count('\n') + 1
@@ -522,7 +770,7 @@ class YamlRuleScanner(BaseScanner):
                         'position': opcode.get('pos', 'unknown'),
                         'arg': str(opcode.get('arg', ''))[:100]
                     },
-                    remediation="Avoid using pickle format. Use safer alternatives like SafeTensors.",
+                    remediation="Avoid using pickle format. Use safer alternatives like JSON or NPY formats.",
                     category="pickle"
                 ))
         

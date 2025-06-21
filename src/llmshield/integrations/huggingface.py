@@ -90,13 +90,13 @@ class HuggingFaceIntegration:
             logger.info(f"Found {len(files)} files in {model_id}")
             
             # Filter for model files
-            model_extensions = {'.pt', '.pth', '.bin', '.safetensors', '.h5', '.pb', '.onnx'}
+            model_extensions = {'.pt', '.pth', '.bin', '.h5', '.pb', '.onnx'}
             model_files = [f for f in files if Path(f).suffix.lower() in model_extensions]
             
             if not model_files:
                 logger.warning(f"No model files found in {model_id}")
                 # Try to download common file names
-                model_files = ['pytorch_model.bin', 'model.safetensors', 'tf_model.h5']
+                model_files = ['pytorch_model.bin', 'tf_model.h5']
             
             downloaded_files = []
             
